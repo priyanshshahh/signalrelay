@@ -123,4 +123,39 @@ export const api = {
       body: JSON.stringify({ enabled }),
     }),
   runOnce: () => j<{ ok: boolean }>("/api/loop/run-once", { method: "POST" }),
+  demoRationale: (id: number) =>
+    j<{ trade: Trade; signal: Signal | null; news: NewsItem | null; snapshot: MarketSnapshot | null }>(
+      `/api/demo/rationale/${id}`
+    ),
 };
+
+export type X402Terms = {
+  network: string;
+  asset: string;
+  amount: string;
+  payTo: string;
+  resource?: string;
+};
+
+/** Hit the REAL paywalled endpoint, expect a 402, and decode the x402 terms. */
+export async function fetchX402Challenge(id: number): Promise<{ status: number; terms: X402Terms | null; raw: string | null }> {
+  const r = await fetch(`/api/trade/${id}/rationale`);
+  const header = r.headers.get("payment-required") || r.headers.get("www-authenticate");
+  let terms: X402Terms | null = null;
+  if (header) {
+    try {
+      const decoded = JSON.parse(atob(header));
+      const a = decoded?.accepts?.[0] ?? {};
+      terms = {
+        network: a.network ?? "eip155:84532",
+        asset: a.asset ?? "",
+        amount: a.amount ?? "",
+        payTo: a.payTo ?? "",
+        resource: decoded?.resource?.url,
+      };
+    } catch {
+      terms = null;
+    }
+  }
+  return { status: r.status, terms, raw: header };
+}

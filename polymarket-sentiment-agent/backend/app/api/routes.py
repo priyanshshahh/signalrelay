@@ -205,6 +205,17 @@ def trade_rationale(trade_id: int):
         }
 
 
+@router.get("/demo/rationale/{trade_id}")
+def demo_rationale(trade_id: int):
+    """UNGATED preview for the x402 Lab UI only.
+
+    The real, monetized endpoint is GET /api/trade/{id}/rationale (x402-paywalled).
+    This mirror lets the dashboard *reveal* what a paying agent receives, after it
+    has shown the live 402 challenge. Not part of the paid product surface.
+    """
+    return trade_rationale(trade_id)
+
+
 @router.get("/logs")
 def logs(limit: int = Query(100, le=500), component: Optional[str] = None):
     with session_scope() as s:
