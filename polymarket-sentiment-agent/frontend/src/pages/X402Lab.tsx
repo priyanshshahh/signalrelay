@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { api, fetchX402Challenge, type X402Terms } from "../api";
+import { useEffect, useState } from "react";
+import { api, fetchBaseUsdcBalance, fetchX402Challenge, type X402Terms } from "../api";
 import { Panel, Pill, Stat } from "../components/Panel";
 
 const AGENT_WALLET = "0x6e45bf955Ce5e097ec038Bd153F4c935344092Ce";
@@ -32,6 +32,15 @@ export default function X402Lab() {
   const [status402, setStatus402] = useState<number | null>(null);
   const [revealed, setRevealed] = useState<Awaited<ReturnType<typeof api.demoRationale>> | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [balance, setBalance] = useState<number | null>(null);
+
+  async function refreshBalance() {
+    setBalance(await fetchBaseUsdcBalance(AGENT_WALLET));
+  }
+
+  useEffect(() => {
+    refreshBalance();
+  }, []);
 
   async function run() {
     setRunning(true);
@@ -59,6 +68,7 @@ export default function X402Lab() {
       setActive(4);
       const data = await api.demoRationale(1);
       setRevealed(data);
+      refreshBalance();
       await sleep(300);
     } catch (e) {
       setErr((e as Error).message);
@@ -101,6 +111,20 @@ export default function X402Lab() {
               <Pill tone="positive">Authorized via Privy CLI</Pill>
               <Pill>key in TEE</Pill>
               <Pill>Base Sepolia</Pill>
+            </div>
+            <div className="flex items-center justify-between rounded-lg border border-edge bg-ink/50 px-3 py-2">
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-muted">Live USDC balance · Base Sepolia</div>
+                <div className="text-lg text-accent mt-0.5">
+                  {balance == null ? "—" : `$${balance.toFixed(2)}`}
+                </div>
+              </div>
+              <button
+                onClick={refreshBalance}
+                className="text-[10px] border border-edge rounded px-2 py-1 text-muted hover:text-white hover:bg-edge"
+              >
+                ↻ refresh
+              </button>
             </div>
             <p className="text-muted leading-relaxed">
               One-time human approval bound this agent's P-256 session key to the wallet. After that it pays

@@ -137,6 +137,26 @@ export type X402Terms = {
   resource?: string;
 };
 
+/** Read live USDC balance of an address on Base Sepolia via the public RPC. */
+export async function fetchBaseUsdcBalance(
+  address: string,
+  usdc = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+): Promise<number | null> {
+  try {
+    const data = "0x70a08231000000000000000000000000" + address.replace(/^0x/, "").toLowerCase();
+    const r = await fetch("https://sepolia.base.org", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: usdc, data }, "latest"] }),
+    });
+    const j = await r.json();
+    if (!j?.result) return null;
+    return Number(BigInt(j.result)) / 1_000_000;
+  } catch {
+    return null;
+  }
+}
+
 /** Hit the REAL paywalled endpoint, expect a 402, and decode the x402 terms. */
 export async function fetchX402Challenge(id: number): Promise<{ status: number; terms: X402Terms | null; raw: string | null }> {
   const r = await fetch(`/api/trade/${id}/rationale`);
