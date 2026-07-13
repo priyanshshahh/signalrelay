@@ -35,13 +35,14 @@ def public_ping():
         last = s.get(AgentState, "last_loop_at")
         trade_count = s.query(Trade).count()
         signal_count = s.query(Signal).count()
+    x402_on = settings.x402_enabled and bool(settings.x402_pay_to)
     return {
         "ok": True,
         "service": "poly-agent",
         "mode": settings.trading_mode,
-        "x402_enabled": bool(settings.x402_pay_to),
-        "x402_price": settings.x402_price if settings.x402_pay_to else None,
-        "x402_network": settings.x402_network if settings.x402_pay_to else None,
+        "x402_enabled": x402_on,
+        "x402_price": settings.x402_price if x402_on else None,
+        "x402_network": settings.x402_network if x402_on else None,
         "last_loop_at": last.value if last else None,
         "trade_count": trade_count,
         "signal_count": signal_count,
@@ -213,13 +214,41 @@ def trade_rationale(trade_id: int):
 
 @router.get("/demo/rationale/{trade_id}")
 def demo_rationale(trade_id: int):
-    """UNGATED preview for the x402 Lab UI only.
+    """Free, truncated TEASER of the paid rationale endpoint.
 
-    The real, monetized endpoint is GET /api/trade/{id}/rationale (x402-paywalled).
-    This mirror lets the dashboard *reveal* what a paying agent receives, after it
-    has shown the live 402 challenge. Not part of the paid product surface.
+    The monetized endpoint is GET /api/trade/{id}/rationale (x402-paywalled).
+    This one intentionally returns only a preview — never the full payload —
+    so there is no free bypass of the paywall. Every response carries
+    "demo": true.
     """
-    return trade_rationale(trade_id)
+    with session_scope() as s:
+        t = s.get(Trade, trade_id)
+        if not t:
+            return {"demo": True, "error": "not found"}
+        sig = s.get(Signal, t.signal_id) if t.signal_id else None
+        rationale = (sig.rationale or "") if sig else ""
+        teaser = rationale[:80] + ("…" if len(rationale) > 80 else "")
+        return {
+            "demo": True,
+            "teaser": True,
+            "note": (
+                "Truncated preview. The full rationale (signal, source news, "
+                "market snapshot, posterior and edge) is served by "
+                "GET /api/trade/{trade_id}/rationale behind an x402 paywall."
+            ),
+            "trade": {
+                "id": t.id,
+                "market_question": t.market_question,
+                "outcome": t.outcome,
+                "side": t.side,
+                "mode": t.mode,
+            },
+            "signal_preview": {
+                "sentiment": sig.sentiment if sig else None,
+                "topic": sig.topic if sig else None,
+                "rationale_preview": teaser,
+            },
+        }
 
 
 @router.get("/logs")

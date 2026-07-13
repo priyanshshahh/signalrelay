@@ -69,6 +69,9 @@ class Settings(BaseSettings):
     max_markets: int = 5
 
     # x402 paywall (Base Sepolia via https://x402.org/facilitator)
+    # When x402_enabled is true, x402_pay_to MUST be a real address —
+    # startup fails otherwise (see x402_setup.py).
+    x402_enabled: bool = False
     x402_pay_to: str = ""
     x402_price: str = "$0.01"
     x402_facilitator_url: str = "https://x402.org/facilitator"
