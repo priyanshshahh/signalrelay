@@ -1,8 +1,8 @@
 # Repo root — keep secrets out of git
-alphanet-core/backend/.env
+# (alphanet-core removed)
 **/.env
 !**/.env.example
-alphanet-core/backend/alphanet.db-journal
+
 
 # venvs / node / build
 .venv/
@@ -12,3 +12,5 @@ consumer/.env
 polymarket-sentiment-agent/backend/.env
 .DS_Store
 __MACOSX/
+.venv-backend/
+.venv-chf/

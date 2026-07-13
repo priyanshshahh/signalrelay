@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend-tests:
+    name: App backend (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: polymarket-sentiment-agent/backend/requirements.txt
+      - name: Install
+        working-directory: polymarket-sentiment-agent/backend
+        run: |
+          pip install -r requirements.txt pytest
+      - name: Test
+        working-directory: polymarket-sentiment-agent/backend
+        run: pytest tests -q
+
+  chf-tests:
+    name: chf quant engine (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: chf/requirements.txt
+      - name: Install
+        working-directory: chf
+        run: pip install -r requirements.txt
+      - name: Test
+        working-directory: chf
+        # Four tests are deselected because they require pipeline-generated
+        # local data artifacts (chf/data/raw/*, gitignored) that do not exist
+        # in a fresh checkout. All other tests run against committed fixtures.
+        run: |
+          pytest tests -q \
+            --deselect tests/test_cli_commands.py::test_cmd_features_runs_both_feature_stages \
+            --deselect tests/test_market_data_agent_research_mode.py::test_cache_is_used_before_live_api \
+            --deselect tests/test_market_data_agent_research_mode.py::test_verifier_does_not_falsely_fail_on_valid_10x365_output \
+            --deselect tests/test_pipeline_integration.py::test_pipeline_agents_run_end_to_end_from_market_data
+
+  frontend-build:
+    name: Frontend (tsc + vite build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: polymarket-sentiment-agent/frontend/package-lock.json
+      - name: Install
+        working-directory: polymarket-sentiment-agent/frontend
+        run: npm ci --no-audit --no-fund
+      - name: Type-check
+        working-directory: polymarket-sentiment-agent/frontend
+        run: npx tsc --noEmit
+      - name: Build
+        working-directory: polymarket-sentiment-agent/frontend
+        run: npm run build
