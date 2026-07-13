@@ -1,10 +1,6 @@
 # Poly Agent — Sentiment Trading on Polymarket
 
-[![CI](https://github.com/priyanshshahh/polymarket-sentiment-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/priyanshshahh/polymarket-sentiment-agent/actions/workflows/ci.yml)
-[![Live demo](https://img.shields.io/badge/demo-poly--agent.fly.dev-7cf6c4)](https://poly-agent.fly.dev)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-
-**Live demo:** **https://poly-agent.fly.dev**
 
 Poly Agent is a **modular sentiment-trading system** for [Polymarket](https://polymarket.com):
 it ingests crypto news, estimates probabilities with rigorous math (not LLM
@@ -23,7 +19,7 @@ external integrations.
 
 | Layer | What it is | Status |
 | --- | --- | --- |
-| **Scout** | RSS + CryptoPanic news ingestion, URL-deduped | Live on [poly-agent.fly.dev](https://poly-agent.fly.dev) |
+| **Scout** | RSS + CryptoPanic news ingestion, URL-deduped | Working |
 | **Quant** | LLM extracts sentiment; Python computes Bayesian posterior | Live (heuristic fallback; Groq optional) |
 | **Oracle** | Polymarket Gamma + CLOB price/order-book snapshots | Watching 5 crypto markets |
 | **Overseer** | Edge threshold, max size, drawdown kill switch | Enforced every cycle |
@@ -32,7 +28,7 @@ external integrations.
 | **Public API** | `GET /api/public/ping` — free, for Lovable / curl / webhooks | Live |
 | **x402 paywall** | `GET /api/trade/{id}/rationale` — $0.01 USDC/call, Base Sepolia | Live |
 | **Workshop skills** | `email-triage`, `x402-pay`, Gmail connector docs in [CLAUDE.md](./CLAUDE.md) | In `.cursor/skills/` |
-| **CI + deploy** | GitHub Actions, Docker, Fly.io with persistent SQLite | Auto on push |
+| **CI + deploy** | GitHub Actions, Docker, Render (blueprint at repo root `render.yaml`) | Auto on push |
 
 **Repository:** https://github.com/priyanshshahh/polymarket-sentiment-agent
 
@@ -323,12 +319,12 @@ from `/`.
 
 Auto-generated OpenAPI/Swagger at `/docs` (FastAPI default).
 
-Try it live:
+Try it (against a local or deployed instance):
 
 ```bash
-curl https://poly-agent.fly.dev/api/public/ping | jq
-curl https://poly-agent.fly.dev/api/status | jq
-curl https://poly-agent.fly.dev/api/trades | jq '.[0]'
+curl http://localhost:8000/api/public/ping | jq
+curl http://localhost:8000/api/status | jq
+curl http://localhost:8000/api/trades | jq '.[0]'
 ```
 
 ---
@@ -350,18 +346,11 @@ with `X-PAYMENT` header.
 **Test without paying:**
 
 ```bash
-curl -i https://poly-agent.fly.dev/api/trade/1/rationale
+curl -i http://localhost:8000/api/trade/1/rationale
 # HTTP/1.1 402 Payment Required
 ```
 
-**Pay with the workshop `x402-pay` skill** (OWS wallet + USDC from [Circle faucet](https://faucet.circle.com/)):
-
-```bash
-cd .cursor/skills/x402-pay/scripts && npm install
-npx tsx pay.ts --url https://poly-agent.fly.dev/api/trade/1/rationale --method GET
-```
-
-Enable locally: set `X402_PAY_TO=0x5190715b3aFd1076b1416F20e7E64F53B90e054e` in `backend/.env`.
+Enable locally: set `X402_ENABLED=true` and `X402_PAY_TO=<your Base Sepolia address>` in `backend/.env`.
 
 ---
 
@@ -460,62 +449,29 @@ cd ../backend && uvicorn app.main:app --port 8000
 
 ## Deployment
 
-Production is a **single container** on Fly.io: FastAPI serves both the
-API and the built React bundle, agent loop runs in the same process, SQLite
-sits on a persistent volume.
+Production is a **single container** on Render: FastAPI serves both the
+API and the built React bundle, the agent loop runs in the same process, and
+state lives in Postgres (Neon free tier works well; Render free-tier disks are
+ephemeral, so do not rely on SQLite there).
 
-### Live deployment
+### Render (blueprint)
 
-Already deployed at **https://poly-agent.fly.dev**.
+The repo root contains a [`render.yaml`](../render.yaml) blueprint:
 
-### Redeploy after changes
+1. Fork the repo and open https://dashboard.render.com/select-repo?type=blueprint.
+2. Set `DATABASE_URL` to a Postgres connection string (e.g. from
+   [Neon](https://neon.tech) free tier). Without it the container falls back to
+   SQLite in `/tmp`, which is wiped on every restart.
+3. Set `X402_PAY_TO` to your own Base Sepolia address if you want the paywall
+   live, plus `X402_ENABLED=true`.
+4. Optional: set `GROQ_API_KEY` (free at https://console.groq.com) for real LLM
+   extraction instead of the heuristic fallback.
 
-```bash
-fly deploy --app poly-agent
-```
+### Any Docker host
 
-### Manage the app
-
-```bash
-fly logs --app poly-agent              # live tail
-fly status --app poly-agent            # machine + check status
-fly ssh console --app poly-agent       # shell in
-fly machine restart --app poly-agent   # bounce
-```
-
-### Set an LLM key (recommended)
-
-```bash
-# Free, no credit card: https://console.groq.com
-fly secrets set GROQ_API_KEY=gsk_... --app poly-agent
-# triggers an automatic redeploy
-```
-
-### Spinning up a fresh deployment from this repo
-
-If you've forked and want your own copy:
-
-```bash
-brew install flyctl
-fly auth signup
-
-cd polymarket-sentiment-agent
-# pick a globally unique name
-sed -i '' 's/^app = .*/app = "your-name-here"/' fly.toml
-
-fly apps create your-name-here
-fly volumes create doa_data --app your-name-here --region iad --size 1 --yes
-fly deploy --app your-name-here
-```
-
-### Alternative hosts
-
-| Platform | Verdict |
-| --- | --- |
-| **Render** (free) | Sleeps after 15 min idle, which kills the agent loop. Don't. |
-| **Railway** | Works, but $5 one-time credit only — no permanent free tier. |
-| **Hugging Face Spaces** | Designed for ML demos; agents can be killed on inactivity. |
-| **DigitalOcean / Hetzner VPS** | ~$4/mo. Use the same `Dockerfile`. Full control. |
+The `Dockerfile` in this directory is self-contained (multi-stage: Node 20
+frontend build + Python 3.12 runtime). It works unchanged on a VPS,
+DigitalOcean, or any container platform — supply the same env vars.
 
 ---
 
@@ -537,10 +493,8 @@ signer on a public repo is a footgun. To enable:
    ```
 2. **Capture the order id / tx hash** on the `Trade.tx_hash` column for
    audit.
-3. **Store the wallet key as a Fly secret**, never in `.env` or the repo:
-   ```bash
-   fly secrets set WALLET_PRIVATE_KEY=0x... --app poly-agent
-   ```
+3. **Store the wallet key as a host secret** (Render dashboard env var),
+   never in `.env` or the repo.
 4. **Smoke test with `MAX_USDC_PER_TRADE=1`** for at least a day of live
    trades before scaling up.
 5. **Set a tight kill switch:** `DAILY_DRAWDOWN_USDC=5` initially.
@@ -646,7 +600,7 @@ old, (b) the edge has reverted, or (c) the model's posterior has flipped.
 | --- | --- | --- |
 | "No trades yet" | Edge threshold high vs heuristic signals | Set `GROQ_API_KEY` for stronger signals; or lower `EDGE_THRESHOLD` to `0.03` for demo. |
 | `watched_markets: 0` in status | No active markets matched your keywords | Pin specific markets via `WATCH_MARKETS=<condition_id>` or broaden `MARKET_KEYWORDS`. |
-| `llm_provider: heuristic` | No LLM key loaded | `fly secrets set GROQ_API_KEY=gsk_...` |
+| `llm_provider: heuristic` | No LLM key loaded | Set `GROQ_API_KEY` in `.env` or your host's env vars |
 | `KILL_SWITCH active` rejection | Drawdown triggered auto-kill | Inspect `/api/logs?component=risk`, decide if you want to resume via dashboard toggle. |
 | Repeated trades on same article | Should not happen | Check `idem_key` uniqueness in DB; if duplicate, `signal_id` is being regenerated — investigate ingestion. |
 | Slow first deploy | First Docker build is ~5 min | Subsequent deploys are ~30s with cached layers. |
@@ -685,9 +639,8 @@ old, (b) the edge has reverted, or (c) the model's posterior has flipped.
 │   ├── package.json
 │   ├── tailwind.config.js
 │   └── vite.config.ts
-├── .github/workflows/ci.yml     # Backend + frontend + Docker CI
 ├── Dockerfile                   # Multi-stage build (Node 20 + Python 3.12)
-├── fly.toml                     # Fly.io app config
+├── docker-entrypoint.sh         # DB init + optional demo seed + uvicorn
 ├── LICENSE                      # MIT
 └── README.md                    # This file
 ```

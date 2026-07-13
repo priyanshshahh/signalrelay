@@ -25,7 +25,8 @@ RUN pip install -r requirements.txt
 COPY backend/ ./
 COPY --from=web /web/dist /app/frontend_dist
 
-# /data is mounted as a Fly volume for SQLite persistence.
+# /data holds the SQLite fallback DB when DATABASE_URL is not overridden.
+# Mount a volume here for persistence, or point DATABASE_URL at Postgres.
 RUN mkdir -p /data
 VOLUME ["/data"]
 

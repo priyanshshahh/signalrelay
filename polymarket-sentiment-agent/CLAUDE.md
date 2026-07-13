@@ -7,7 +7,6 @@ It follows the Headless Vibe workshop flow: public API, agent skills, x402 micro
 on Base Sepolia.
 
 **Operator:** Priyansh Shah  
-**Live app:** https://poly-agent.fly.dev  
 **GitHub:** https://github.com/priyanshshahh/polymarket-sentiment-agent
 
 ---
@@ -78,7 +77,7 @@ Check balance: `ows fund balance --wallet poly-agent`
 ```bash
 cd .cursor/skills/x402-pay/scripts
 npm install
-npx tsx pay.ts --url https://poly-agent.fly.dev/api/trade/1/rationale --method GET
+npx tsx pay.ts --url http://localhost:8000/api/trade/1/rationale --method GET
 ```
 
 ---
@@ -87,17 +86,17 @@ npx tsx pay.ts --url https://poly-agent.fly.dev/api/trade/1/rationale --method G
 
 ```bash
 # Ping from Lovable / anywhere (no payment)
-curl https://poly-agent.fly.dev/api/public/ping
+curl http://localhost:8000/api/public/ping
 
 # Agent status
-curl https://poly-agent.fly.dev/api/status
+curl http://localhost:8000/api/status
 ```
 
 ## Paywalled API (x402)
 
 ```bash
 # Returns HTTP 402 with payment instructions
-curl -i https://poly-agent.fly.dev/api/trade/1/rationale
+curl -i http://localhost:8000/api/trade/1/rationale
 
 # Pay with the x402-pay skill script (see above)
 ```
@@ -106,7 +105,6 @@ curl -i https://poly-agent.fly.dev/api/trade/1/rationale
 
 ## Deploy
 
-```bash
-fly secrets set X402_PAY_TO=0x5190715b3aFd1076b1416F20e7E64F53B90e054e --app poly-agent
-fly deploy --app poly-agent
-```
+Render blueprint at the repo root (`render.yaml`). Set `X402_ENABLED=true`,
+`X402_PAY_TO=<your address>`, and `DATABASE_URL=<Postgres URL>` in the Render
+dashboard.
