@@ -273,6 +273,9 @@ def bayesian_update(prior: float, sentiment: str, confidence: float) -> Tuple[fl
     # log-odds Bayes update
     log_odds = math.log(prior / (1 - prior)) + math.log(lr)
     posterior = 1 / (1 + math.exp(-log_odds))
+    # Never emit a hard 0/1 — downstream edge math assumes open interval,
+    # and round() alone can push an extreme prior to exactly 1.0.
+    posterior = min(max(posterior, 1e-4), 1 - 1e-4)
     return round(posterior, 4), round(lr, 4)
 
 
