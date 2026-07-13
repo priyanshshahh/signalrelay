@@ -1,99 +1,131 @@
 # SignalRelay
 
-**Agent-to-agent prediction-market alpha, paid over x402 on Base.**
+**Agent-to-agent prediction-market alpha, paid per call over x402 on Base.**
 
-> ✅ **Live & verified:** a Privy-authorized agent pays **$0.01 USDC on Base Sepolia** per call.
-> On-chain settlement confirmed (wallet debited exactly $0.01). One-command demo: `./run-demo.sh`.
+A Polymarket sentiment oracle that *earns* USDC by selling its Bayesian trading edge, and a
+Privy-authorized consumer agent that *spends* USDC to hire it — one human approval, then
+fully autonomous $0.01 micropayments. No API keys, no subscriptions.
 
-SignalRelay is an autonomous **Polymarket sentiment oracle** that *earns* USDC by selling
-its Bayesian trading edge, and a **Privy-authorized consumer agent** that *spends* USDC to
-hire it — one human approval, then fully autonomous micropayments. No API keys, no
-subscriptions. Just machines paying machines over HTTP.
-
-> Built with **Privy** (Agent Authorization + embedded wallet) and **Base** (USDC on Base Sepolia via x402).
+Live payment verified on Base Sepolia: the consumer wallet is debited exactly $0.01 per
+call and the paywalled rationale is returned over HTTP 200.
 
 ---
 
-## The economic loop
+## Repository layout
 
-```
-Human ──one-time approve──▶ Consumer Agent (Privy embedded wallet, key in TEE)
-                                  │  GET /api/trade/1/rationale
-                                  ▼
-                           Provider Agent (FastAPI + x402 ASGI middleware)
-                                  │  402 Payment Required  ($0.01 USDC, Base Sepolia)
-                                  ▼
-                           Privy TEE signs ──▶ x402 Facilitator settles on Base
-                                  │  X-PAYMENT receipt
-                                  ▼
-                           200 OK: { trade, signal, news, snapshot }  ← the "alpha"
-```
-
-- **Provider (earns):** watches Polymarket markets + crypto news, uses an LLM purely as an
-  NLP parser, then computes a **deterministic Bayesian posterior** in Python and the
-  **edge** = posterior − market-implied prior. The full rationale is paywalled with x402.
-- **Consumer (spends):** a downstream trading agent that pays per-signal using a
-  **Privy Agent Authorization** session. The agent never holds the private key.
-
----
-
-## Built today vs. pre-existing
-
-| Component | Status |
+| Path | What it is |
 | --- | --- |
-| Polymarket scout, Bayesian quant, paper-trader | **Pre-existing** (`polymarket-sentiment-agent`) |
-| `x402[evm]` ASGI middleware gating `GET /api/trade/{id}/rationale` | **Pre-existing** (`x402_setup.py`) |
-| Quant-rigor / leakage methodology | **Pre-existing (referenced)** (`chf`) |
-| **Privy Agent Authorization consumer + live x402 payment on Base** | **Built today** |
-| **SignalRelay rebrand, demo, submission** | **Built today** |
+| `polymarket-sentiment-agent/backend` | FastAPI provider: agent loop (Scout → Quant → Oracle → Overseer → Trader), x402 paywall, Postgres/SQLite persistence |
+| `polymarket-sentiment-agent/frontend` | React + Vite command center (dashboard, trade drawer, x402 lab) |
+| `consumer/` | Privy Agent Authorization consumer (`@privy-io/node` + x402 client) |
+| `chf/` | Quant research engine: data pipeline, leakage-safe features, vectorized backtests |
+| `docs/` | Architecture, demo scripts, deployment notes, `PROJECT-NOTES.md` |
 
 ---
 
-## Run the demo (two terminals)
+## The payment flow (x402 + Privy)
 
-### Terminal A — Provider (earns)
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Human
+    participant C as Consumer agent<br/>(Privy embedded wallet, key in TEE)
+    participant P as Provider API<br/>(FastAPI + x402 middleware)
+    participant F as x402 Facilitator
+    participant B as Base Sepolia<br/>(USDC)
+
+    Human->>C: one-time Agent Authorization approval
+    C->>P: GET /api/trade/{id}/rationale
+    P-->>C: 402 Payment Required ($0.01 USDC, pay-to, network)
+    C->>C: Privy TEE signs payment authorization<br/>(agent never holds the private key)
+    C->>P: retry with X-PAYMENT header
+    P->>F: verify + settle
+    F->>B: USDC transfer (gas sponsored)
+    B-->>F: confirmed
+    F-->>P: settlement receipt
+    P-->>C: 200 OK { trade, signal, news, snapshot }
+```
+
+Unpaid callers get a deliberately truncated free teaser (`/api/demo/rationale/{id}`) — the
+posterior, edge, source article, and market snapshot are only served on the paid route.
+If `X402_ENABLED=true` and `X402_PAY_TO` is unset, the app **fails at startup** rather than
+silently serving alpha for free.
+
+## The signal itself
+
+The LLM (Groq `llama-3.1-8b-instant`, with OpenAI → Anthropic → heuristic fallback) is used
+**only as an NLP parser** — it extracts `{sentiment, confidence, topic, entities}` from a
+headline. The probability math is deterministic Python: a Bayesian update of the
+market-implied prior with a confidence-scaled likelihood ratio, clamped away from hard 0/1.
+
+Verified live (2026-07-12), real Groq call on a Fed headline:
+`sentiment=bullish, confidence=0.8, topic=FED` → `bayesian_update(prior=0.62)` →
+`posterior=0.8727, likelihood_ratio=4.2`.
+
+## Honest-data policy
+
+Seeded demo rows are labeled `demo=true` end to end — database, API responses, and UI
+(DEMO pills on trades, "includes DEMO data — PnL illustrative" on the portfolio and equity
+panels). Nothing seeded is presented as live trading performance. Trading defaults to
+PAPER mode; LIVE requires an explicit key and is off by default.
+
+## chf — the research engine behind the quant claims
+
+`chf/` is a standalone crypto-portfolio research pipeline (universe selection, market +
+on-chain data QA, feature engineering, vectorized backtesting) built around research
+integrity: point-in-time universes, leakage-audited features, deterministic seeds, and a
+verifier stage that fails the pipeline on missing or malformed artifacts. Its
+methodology is what disciplines the provider's Bayesian signal. See `chf/README.md`.
+
+**Test status (honest counts, run 2026-07-12):**
+- Backend app tier: **55 passed** (offline, in-memory SQLite).
+- chf: **239 passed, 4 failed** of 243 — the 4 require pipeline-generated local data
+  (`chf/data/raw/*`, gitignored) that does not exist in a fresh checkout; CI deselects
+  exactly those 4 with the reason documented in `.github/workflows/ci.yml`.
+- Frontend: `tsc --noEmit` clean, `vite build` green.
+
+---
+
+## Run it
+
+### Provider (earns)
 ```bash
 cd polymarket-sentiment-agent/backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env
-echo "X402_PAY_TO=0xYourBaseSepoliaAddress" >> .env   # enables the paywall
+cp .env.example .env          # optional: GROQ_API_KEY, X402_ENABLED, X402_PAY_TO
 uvicorn app.main:app --port 8000
-# verify: curl -i http://localhost:8000/api/trade/1/rationale  -> 402 Payment Required
+# paywall check: curl -i http://localhost:8000/api/trade/1/rationale  -> 402 when enabled
 ```
 
-### One-command demo (after the provider + tunnel are up)
+### Frontend
 ```bash
-PROVIDER_URL=https://<your-tunnel>.loca.lt ./run-demo.sh
-# [1] shows live USDC balance  [2] 402 challenge  [3] Privy pays + 200 OK alpha  [4] balance debited $0.01
+cd polymarket-sentiment-agent/frontend
+npm install && npm run dev    # http://localhost:5173
 ```
 
-### Terminal B — Consumer (spends, Privy-authorized)
+### Consumer (spends, Privy-authorized)
 ```bash
-# one-time: enable "CLI and agent access" in the Privy Dashboard
-npx @privy-io/agent-wallet-cli login          # approve once in the browser
-npx @privy-io/agent-wallet-cli list-wallets   # note the ethereum wallet + address
-# fund that address with Base Sepolia USDC at https://faucet.circle.com
-
-# x402 client only accepts HTTPS, so expose the provider:
-npx localtunnel --port 8000                    # -> https://<name>.loca.lt
-
+npx @privy-io/agent-wallet-cli login          # one-time human approval
+npx localtunnel --port 8000                   # x402 client requires HTTPS
 npx @privy-io/agent-wallet-cli fetch-x402 \
   --header "bypass-tunnel-reminder: 1" \
   https://<name>.loca.lt/api/trade/1/rationale
-# -> 402 -> Privy TEE signs -> facilitator settles on Base -> 200 OK + rationale JSON
+```
+Node variant: [`consumer/consumer-agent.ts`](consumer/consumer-agent.ts).
+
+### Tests
+```bash
+cd polymarket-sentiment-agent/backend && pytest tests -q   # 55 tests, fully offline
+cd chf && pytest tests -q                                  # 239 offline + 4 data-dependent
 ```
 
-A Node version of the consumer (`@privy-io/node` + `@x402/fetch`) lives in
-[`consumer/consumer-agent.ts`](consumer/consumer-agent.ts).
+## Deploy
 
----
+Render blueprint at the repo root (`render.yaml`). Set `DATABASE_URL` (Postgres),
+`CORS_ORIGINS` (your frontend origin only), and — to monetize — `X402_ENABLED=true` with a
+real `X402_PAY_TO`. CI (`.github/workflows/ci.yml`) runs backend tests, chf tests, and the
+frontend type-check + build on every push.
 
-## Why it matters
-Downstream trading agents need probabilistic edge, not subscriptions. SignalRelay proves
-**usage-based, per-signal machine commerce**: any agent on Polymarket/Kalshi can discover
-the endpoint, pay $0.01 in USDC on Base, and get a calibrated Bayesian signal — settled in
-seconds, gas sponsored by the facilitator, key never exposed.
-
-See [`SUBMISSION.md`](SUBMISSION.md) for the Telegram text and [`DEMO_SCRIPT.md`](DEMO_SCRIPT.md)
-for the 3-minute presentation.
+More: [`docs/PROJECT-NOTES.md`](docs/PROJECT-NOTES.md) ·
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md)
