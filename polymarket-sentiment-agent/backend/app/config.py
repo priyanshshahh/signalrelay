@@ -20,7 +20,9 @@ class Settings(BaseSettings):
 
     # General
     log_level: str = "INFO"
-    database_url: str = "sqlite:///./doa.db"
+    # SQLite file for local dev; set to a postgres:// / postgresql:// URL
+    # (e.g. Neon) in production. See database.py for URL normalization.
+    database_url: str = "sqlite:///./data/doa.db"
     host: str = "0.0.0.0"
     port: int = 8000
 

@@ -1,4 +1,9 @@
 # One-click deploy: https://dashboard.render.com/select-repo?type=blueprint
+#
+# DATABASE_URL is intentionally sync:false — set it in the Render dashboard
+# to a Postgres connection string (Neon free tier: https://neon.tech).
+# Render's free-tier disk is ephemeral; without Postgres the container falls
+# back to SQLite in /data and loses state on every restart/deploy.
 services:
   - type: web
     name: signalrelay
@@ -8,11 +13,17 @@ services:
     dockerfilePath: ./Dockerfile
     healthCheckPath: /healthz
     envVars:
+      - key: DATABASE_URL
+        sync: false # set to your Neon/other Postgres URL in the dashboard
+      - key: X402_ENABLED
+        value: "true"
       - key: X402_PAY_TO
         value: "0x5190715b3aFd1076b1416F20e7E64F53B90e054e"
       - key: FRONTEND_DIST
         value: /app/frontend_dist
       - key: TRADING_MODE
         value: PAPER
-      - key: DATABASE_URL
-        value: sqlite:////tmp/doa.db
+      - key: SEED_DEMO
+        value: "true" # seeds clearly-labeled demo rows (demo=true) for the UI
+      - key: CORS_ORIGINS
+        sync: false # comma-separated origins of any separately-hosted frontend
