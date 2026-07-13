@@ -42,9 +42,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Explicit origin allowlist — set CORS_ORIGINS (comma-separated) in production.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origin_list,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["X-PAYMENT-RESPONSE", "PAYMENT-RESPONSE", "PAYMENT-REQUIRED"],

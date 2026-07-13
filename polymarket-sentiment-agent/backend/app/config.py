@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
 
+    # CORS — comma-separated list of allowed browser origins.
+    # Defaults cover local dev (Vite on 5173, FastAPI-served build on 8000).
+    cors_origins: str = (
+        "http://localhost:5173,http://127.0.0.1:5173,"
+        "http://localhost:8000,http://127.0.0.1:8000"
+    )
+
     # Agent loop
     loop_interval_seconds: int = 30
     edge_threshold: float = 0.08
@@ -66,6 +73,10 @@ class Settings(BaseSettings):
     x402_price: str = "$0.01"
     x402_facilitator_url: str = "https://x402.org/facilitator"
     x402_network: str = "eip155:84532"
+
+    @property
+    def cors_origin_list(self) -> List[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     @property
     def rss_list(self) -> List[str]:
