@@ -1,5 +1,7 @@
-"""Seed a short history of closed trades so the equity curve renders a real,
-rising line for the demo. Idempotent via fixed idem_keys.
+"""Seed a short history of ILLUSTRATIVE closed trades so the equity curve
+has something to render in the demo. All rows are flagged demo=True and the
+PnL numbers are fabricated for display — they are NOT real trading results.
+Idempotent via fixed idem_keys.
 
 Keeps the primary x402 demo trade (seed_demo.py, id=1) intact.
 """
@@ -36,6 +38,7 @@ def main() -> None:
                 summary=f"Signal context for {topic}.",
                 published_at=ts,
                 ingested_at=ts,
+                demo=True,
             )
             s.add(news)
             s.flush()
@@ -52,6 +55,7 @@ def main() -> None:
                 prior=prior,
                 posterior=posterior,
                 likelihood_ratio=lr,
+                demo=True,
             )
             s.add(sig)
             s.flush()
@@ -67,6 +71,7 @@ def main() -> None:
                 best_ask=prior + 0.01,
                 liquidity=90000.0,
                 volume_24h=300000.0,
+                demo=True,
             )
             s.add(snap)
             s.flush()
@@ -94,7 +99,8 @@ def main() -> None:
                     closed_at=ts + dt.timedelta(hours=1),
                     exit_price=exit_price,
                     pnl_usdc=pnl,
-                    notes="Seeded history for equity curve.",
+                    notes="Seeded history for equity curve (illustrative, not real PnL).",
+                    demo=True,
                 )
             )
             created += 1

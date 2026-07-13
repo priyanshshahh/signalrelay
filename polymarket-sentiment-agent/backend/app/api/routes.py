@@ -191,6 +191,7 @@ def portfolio():
             total_equity_usdc=round(equity + unrealized, 2),
             daily_pnl_usdc=round(daily, 2),
             open_positions=[TradeOut.model_validate(t) for t in open_trades],
+            includes_demo_data=any(t.demo for t in trades),
         )
 
 
@@ -205,6 +206,7 @@ def trade_rationale(trade_id: int):
         news = s.get(NewsItem, sig.news_item_id) if sig else None
         snap = s.get(MarketSnapshot, t.snapshot_id) if t.snapshot_id else None
         return {
+            "demo": bool(t.demo),
             "trade": TradeOut.model_validate(t).model_dump(mode="json"),
             "signal": SignalOut.model_validate(sig).model_dump(mode="json") if sig else None,
             "news": NewsItemOut.model_validate(news).model_dump(mode="json") if news else None,
@@ -285,5 +287,7 @@ def equity_curve():
         points = []
         for r in rows:
             cum += r.pnl_usdc or 0.0
-            points.append({"t": r.created_at.isoformat(), "pnl": round(cum, 2)})
+            points.append(
+                {"t": r.created_at.isoformat(), "pnl": round(cum, 2), "demo": bool(r.demo)}
+            )
         return points

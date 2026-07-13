@@ -1,4 +1,9 @@
-"""Seed one coherent demo trade so /api/trade/{id}/rationale returns rich data.
+"""Seed one coherent DEMO trade so /api/trade/{id}/rationale returns rich data.
+
+Everything created here is ILLUSTRATIVE: the news item, prices, exit price
+and PnL are fabricated to exercise the UI and the x402 flow. Every row is
+flagged demo=True and surfaces as "demo": true in API responses — this is
+NOT real trading performance.
 
 Creates: NewsItem -> Signal (Bayesian) -> MarketSnapshot -> Trade, all linked.
 Safe to run repeatedly (uses a fixed idem_key).
@@ -30,6 +35,7 @@ def main() -> None:
                 "door to a 25 basis point cut, a dovish shift markets read as risk-on."
             ),
             published_at=dt.datetime.utcnow(),
+            demo=True,
         )
         s.add(news)
         s.flush()
@@ -47,6 +53,7 @@ def main() -> None:
             prior=prior,
             posterior=posterior,
             likelihood_ratio=lr,
+            demo=True,
         )
         s.add(sig)
         s.flush()
@@ -62,6 +69,7 @@ def main() -> None:
             best_ask=0.63,
             liquidity=125000.0,
             volume_24h=480000.0,
+            demo=True,
         )
         s.add(snap)
         s.flush()
@@ -69,7 +77,8 @@ def main() -> None:
         edge = round(posterior - prior, 4)
         size = 8.0
         shares = round(size / prior, 4)
-        exit_price = 0.71  # market moved toward our posterior -> a win
+        # Illustrative exit price chosen for the demo narrative — not a real fill.
+        exit_price = 0.71
         trade = Trade(
             idem_key=IDEM,
             mode="PAPER",
@@ -89,7 +98,8 @@ def main() -> None:
             closed_at=dt.datetime.utcnow(),
             exit_price=exit_price,
             pnl_usdc=round(shares * (exit_price - prior), 2),
-            notes="Seeded demo trade for x402 rationale endpoint.",
+            notes="Seeded demo trade for x402 rationale endpoint (illustrative, not real PnL).",
+            demo=True,
         )
         s.add(trade)
         s.flush()

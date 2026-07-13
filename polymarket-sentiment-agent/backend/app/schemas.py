@@ -15,6 +15,7 @@ class NewsItemOut(BaseModel):
     summary: str
     published_at: Optional[datetime]
     ingested_at: datetime
+    demo: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -32,6 +33,7 @@ class SignalOut(BaseModel):
     prior: float
     posterior: float
     likelihood_ratio: float
+    demo: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -49,6 +51,7 @@ class MarketSnapshotOut(BaseModel):
     best_ask: float
     liquidity: float
     volume_24h: float
+    demo: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -76,6 +79,7 @@ class TradeOut(BaseModel):
     pnl_usdc: float
     tx_hash: str
     notes: str
+    demo: bool = False
 
     model_config = {"from_attributes": True, "protected_namespaces": ()}
 
@@ -88,6 +92,8 @@ class PortfolioOut(BaseModel):
     total_equity_usdc: float
     daily_pnl_usdc: float
     open_positions: List[TradeOut]
+    # True when any counted trade is seeded demo data — treat PnL as illustrative.
+    includes_demo_data: bool = False
 
 
 class StatusOut(BaseModel):

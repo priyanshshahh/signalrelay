@@ -42,6 +42,8 @@ class NewsItem(Base):
     summary = Column(Text, default="")
     published_at = Column(DateTime, default=_utcnow)
     ingested_at = Column(DateTime, default=_utcnow, index=True)
+    # True for seeded/illustrative rows (not produced by the live pipeline).
+    demo = Column(Boolean, default=False, nullable=False)
 
     signals = relationship("Signal", back_populates="news_item")
 
@@ -67,6 +69,9 @@ class Signal(Base):
     posterior = Column(Float, default=0.5)
     likelihood_ratio = Column(Float, default=1.0)
 
+    # True for seeded/illustrative rows.
+    demo = Column(Boolean, default=False, nullable=False)
+
     news_item = relationship("NewsItem", back_populates="signals")
 
 
@@ -86,6 +91,8 @@ class MarketSnapshot(Base):
     best_ask = Column(Float, default=1.0)
     liquidity = Column(Float, default=0.0)
     volume_24h = Column(Float, default=0.0)
+    # True for seeded/illustrative rows.
+    demo = Column(Boolean, default=False, nullable=False)
 
 
 class Trade(Base):
@@ -122,6 +129,8 @@ class Trade(Base):
 
     tx_hash = Column(String(128), default="")            # filled only in LIVE mode
     notes = Column(Text, default="")
+    # True for seeded/illustrative rows — demo PnL is NOT real performance.
+    demo = Column(Boolean, default=False, nullable=False)
 
     __table_args__ = (
         Index("ix_trades_status_created", "status", "created_at"),
