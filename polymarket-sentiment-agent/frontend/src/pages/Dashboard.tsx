@@ -126,7 +126,15 @@ export default function Dashboard() {
       )}
 
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Panel title="Portfolio" className="lg:col-span-1">
+        <Panel
+          title="Portfolio"
+          className="lg:col-span-1"
+          right={
+            portfolio?.includes_demo_data ? (
+              <Pill tone="warn">includes DEMO data — PnL illustrative</Pill>
+            ) : undefined
+          }
+        >
           {portfolio && (
             <div className="grid grid-cols-2 gap-y-4">
               <Stat label="Equity" value={`$${portfolio.total_equity_usdc.toFixed(2)}`} />
@@ -151,7 +159,15 @@ export default function Dashboard() {
           )}
         </Panel>
 
-        <Panel title="Equity curve (realized PnL)" className="lg:col-span-2">
+        <Panel
+          title="Equity curve (realized PnL)"
+          className="lg:col-span-2"
+          right={
+            equity.some((p) => p.demo) ? (
+              <Pill tone="warn">includes seeded DEMO trades</Pill>
+            ) : undefined
+          }
+        >
           {equity.length > 0 ? (
             <EquityChart data={equity} />
           ) : (
@@ -206,9 +222,12 @@ export default function Dashboard() {
                     </td>
                     <td className="pr-4 text-right">${t.size_usdc.toFixed(2)}</td>
                     <td>
-                      <Pill tone={t.status === "FILLED" ? "positive" : t.status === "FAILED" ? "negative" : "warn"}>
-                        {t.status}
-                      </Pill>
+                      <span className="inline-flex gap-1">
+                        <Pill tone={t.status === "FILLED" ? "positive" : t.status === "FAILED" ? "negative" : "warn"}>
+                          {t.status}
+                        </Pill>
+                        {t.demo && <Pill tone="warn">DEMO</Pill>}
+                      </span>
                     </td>
                   </tr>
                 ))}

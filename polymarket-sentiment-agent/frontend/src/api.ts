@@ -19,6 +19,7 @@ export type NewsItem = {
   summary: string;
   published_at: string | null;
   ingested_at: string;
+  demo: boolean;
 };
 
 export type Signal = {
@@ -34,6 +35,7 @@ export type Signal = {
   prior: number;
   posterior: number;
   likelihood_ratio: number;
+  demo: boolean;
 };
 
 export type MarketSnapshot = {
@@ -49,6 +51,7 @@ export type MarketSnapshot = {
   best_ask: number;
   liquidity: number;
   volume_24h: number;
+  demo: boolean;
 };
 
 export type Trade = {
@@ -74,6 +77,7 @@ export type Trade = {
   pnl_usdc: number;
   tx_hash: string;
   notes: string;
+  demo: boolean;
 };
 
 export type Portfolio = {
@@ -84,9 +88,39 @@ export type Portfolio = {
   total_equity_usdc: number;
   daily_pnl_usdc: number;
   open_positions: Trade[];
+  /** True when any counted trade is seeded demo data — PnL is illustrative. */
+  includes_demo_data: boolean;
 };
 
-export type EquityPoint = { t: string; pnl: number };
+export type EquityPoint = { t: string; pnl: number; demo: boolean };
+
+export type Rationale = {
+  demo: boolean;
+  trade: Trade;
+  signal: Signal | null;
+  news: NewsItem | null;
+  snapshot: MarketSnapshot | null;
+};
+
+/** Free teaser returned by /api/demo/rationale — intentionally truncated. */
+export type DemoTeaser = {
+  demo: true;
+  teaser?: boolean;
+  note?: string;
+  error?: string;
+  trade?: {
+    id: number;
+    market_question: string;
+    outcome: string;
+    side: string;
+    mode: string;
+  };
+  signal_preview?: {
+    sentiment: string | null;
+    topic: string | null;
+    rationale_preview: string;
+  };
+};
 
 export type LogEvent = {
   id: number;
@@ -112,10 +146,7 @@ export const api = {
   portfolio: () => j<Portfolio>("/api/portfolio"),
   equityCurve: () => j<EquityPoint[]>("/api/equity-curve"),
   logs: () => j<LogEvent[]>("/api/logs?limit=100"),
-  rationale: (id: number) =>
-    j<{ trade: Trade; signal: Signal | null; news: NewsItem | null; snapshot: MarketSnapshot | null }>(
-      `/api/trade/${id}/rationale`
-    ),
+  rationale: (id: number) => j<Rationale>(`/api/trade/${id}/rationale`),
   setKill: (enabled: boolean) =>
     j<{ kill_switch: boolean }>("/api/kill-switch", {
       method: "POST",
@@ -123,10 +154,7 @@ export const api = {
       body: JSON.stringify({ enabled }),
     }),
   runOnce: () => j<{ ok: boolean }>("/api/loop/run-once", { method: "POST" }),
-  demoRationale: (id: number) =>
-    j<{ trade: Trade; signal: Signal | null; news: NewsItem | null; snapshot: MarketSnapshot | null }>(
-      `/api/demo/rationale/${id}`
-    ),
+  demoRationale: (id: number) => j<DemoTeaser>(`/api/demo/rationale/${id}`),
 };
 
 export type X402Terms = {

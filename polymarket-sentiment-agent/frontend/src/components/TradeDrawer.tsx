@@ -1,21 +1,29 @@
 import { useEffect, useState } from "react";
-import { api, type MarketSnapshot, type NewsItem, type Signal, type Trade } from "../api";
+import { api, type DemoTeaser, type Rationale } from "../api";
 import { Pill } from "./Panel";
 
 export function TradeDrawer({ tradeId, onClose }: { tradeId: number | null; onClose: () => void }) {
-  const [data, setData] = useState<{
-    trade: Trade;
-    signal: Signal | null;
-    news: NewsItem | null;
-    snapshot: MarketSnapshot | null;
-  } | null>(null);
+  const [data, setData] = useState<Rationale | null>(null);
+  const [teaser, setTeaser] = useState<DemoTeaser | null>(null);
 
   useEffect(() => {
     if (tradeId == null) {
       setData(null);
+      setTeaser(null);
       return;
     }
-    api.rationale(tradeId).then(setData).catch(() => setData(null));
+    // The full rationale is x402-paywalled in production; fall back to the
+    // free truncated teaser when the gated route returns 402.
+    api
+      .rationale(tradeId)
+      .then((d) => {
+        setData(d);
+        setTeaser(null);
+      })
+      .catch(() => {
+        setData(null);
+        api.demoRationale(tradeId).then(setTeaser).catch(() => setTeaser(null));
+      });
   }, [tradeId]);
 
   if (tradeId == null) return null;
@@ -42,10 +50,36 @@ export function TradeDrawer({ tradeId, onClose }: { tradeId: number | null; onCl
           </button>
         </div>
 
-        {!data && <div className="text-muted text-sm">Loading…</div>}
+        {!data && !teaser && <div className="text-muted text-sm">Loading…</div>}
+
+        {!data && teaser && (
+          <div className="space-y-4">
+            <div className="flex gap-2">
+              <Pill tone="warn">DEMO teaser</Pill>
+              <Pill>x402 paywalled</Pill>
+            </div>
+            <section className="bg-edge/40 rounded-lg p-3">
+              <div className="text-xs text-muted uppercase mb-1">Preview</div>
+              <div className="text-sm">{teaser.trade?.market_question}</div>
+              <div className="text-xs text-muted mt-2 flex flex-wrap gap-2">
+                {teaser.signal_preview?.sentiment && <Pill>{teaser.signal_preview.sentiment}</Pill>}
+                {teaser.signal_preview?.topic && <Pill>{teaser.signal_preview.topic}</Pill>}
+              </div>
+              <div className="text-xs text-muted mt-2">{teaser.signal_preview?.rationale_preview}</div>
+              <div className="text-xs text-muted mt-3">
+                {teaser.note ?? "Full rationale requires an x402 payment on the gated endpoint."}
+              </div>
+            </section>
+          </div>
+        )}
 
         {data && (
           <div className="space-y-4">
+            {data.demo && (
+              <div className="flex gap-2">
+                <Pill tone="warn">DEMO trade — illustrative data, not real PnL</Pill>
+              </div>
+            )}
             <section className="bg-edge/40 rounded-lg p-3">
               <div className="text-xs text-muted uppercase mb-1">Decision</div>
               <div className="text-sm">{data.trade.market_question}</div>

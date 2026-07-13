@@ -64,7 +64,8 @@ export default function X402Lab() {
       setActive(3);
       await sleep(900);
 
-      // Step 5: reveal what the paying agent receives.
+      // Step 5: show the FREE teaser. The full payload is only served to a
+      // paying agent on the x402-gated route — there is no free bypass.
       setActive(4);
       const data = await api.demoRationale(1);
       setRevealed(data);
@@ -192,37 +193,33 @@ export default function X402Lab() {
           )}
         </Panel>
 
-        <Panel title="Alpha delivered (after payment)">
+        <Panel title="Free teaser (full alpha requires x402 payment)">
           {!revealed ? (
             <div className="text-muted text-xs">
-              The paid 200 OK payload appears here once the flow completes.
+              The free teaser appears here once the flow completes. The full
+              rationale is only returned to a paying agent.
             </div>
           ) : (
             <div className="space-y-3 text-xs">
-              <div className="text-white">{revealed.trade?.market_question}</div>
-              <div className="grid grid-cols-3 gap-3">
-                <Stat label="Market prior" value={revealed.snapshot ? revealed.snapshot.price.toFixed(2) : "—"} />
-                <Stat
-                  label="Posterior"
-                  value={revealed.signal ? revealed.signal.posterior.toFixed(2) : "—"}
-                  tone="positive"
-                />
-                <Stat label="Edge" value={`+${revealed.trade?.edge.toFixed(3)}`} tone="positive" />
-              </div>
               <div className="flex gap-2 flex-wrap">
-                <Pill tone={revealed.signal?.sentiment === "bullish" ? "positive" : "neutral"}>
-                  {revealed.signal?.sentiment}
-                </Pill>
-                <Pill>{revealed.signal?.topic}</Pill>
-                <Pill>conf {revealed.signal?.confidence.toFixed(2)}</Pill>
-                <Pill>{revealed.trade?.side} {revealed.trade?.outcome}</Pill>
+                <Pill tone="warn">DEMO</Pill>
+                <Pill>teaser · truncated</Pill>
               </div>
-              <div className="text-muted">{revealed.signal?.rationale}</div>
-              {revealed.news && (
-                <a href={revealed.news.url} target="_blank" rel="noreferrer" className="text-accent hover:underline block">
-                  Source: {revealed.news.title}
-                </a>
-              )}
+              <div className="text-white">{revealed.trade?.market_question}</div>
+              <div className="flex gap-2 flex-wrap">
+                <Pill tone={revealed.signal_preview?.sentiment === "bullish" ? "positive" : "neutral"}>
+                  {revealed.signal_preview?.sentiment ?? "—"}
+                </Pill>
+                <Pill>{revealed.signal_preview?.topic ?? "—"}</Pill>
+                <Pill>
+                  {revealed.trade?.side} {revealed.trade?.outcome}
+                </Pill>
+              </div>
+              <div className="text-muted">{revealed.signal_preview?.rationale_preview}</div>
+              <div className="rounded-lg border border-edge bg-ink/50 px-3 py-2 text-muted leading-relaxed">
+                {revealed.note ??
+                  "The posterior, edge, source article and market snapshot are only served by the x402-paywalled endpoint."}
+              </div>
             </div>
           )}
         </Panel>
