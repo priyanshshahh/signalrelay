@@ -1487,11 +1487,57 @@ def test_verifier_reports_bad_rows_clearly(tmp_path):
     assert any("bad close row counts by symbol" in warning for warning in warnings)
 
 
-def test_verifier_does_not_falsely_fail_on_valid_10x365_output():
+def _write_valid_market_outputs(tmp_path: Path, *, n_symbols: int = 6, n_days: int = 365) -> None:
+    """Write a hermetic, verifier-valid market_ohlcv/coverage/manifest triple."""
+    out_dir = tmp_path / "data" / "raw" / "market"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    symbols = ["BTC", "ETH", "SOL", "ADA", "AVAX", "LINK", "UNI", "AAVE", "DOT", "MATIC"][:n_symbols]
+    dates = pd.date_range("2024-01-01", periods=n_days, freq="D", tz="UTC")
+
+    market_rows = []
+    coverage_rows = []
+    for idx, symbol in enumerate(symbols):
+        base = 100.0 + idx * 10
+        for i, dt in enumerate(dates):
+            close = base + i * 0.1
+            market_rows.append({
+                "date_ts": dt, "symbol": symbol, "exchange": "coinbase",
+                "exchange_symbol": f"{symbol}/USD", "open": close * 0.99, "high": close * 1.02,
+                "low": close * 0.98, "close": close, "volume": 1_000_000.0 + i, "source": "coinbase",
+                "snapshot_id": "valid-snap", "fetched_at_utc": "2025-01-02T00:00:00+00:00",
+                "is_forward_filled": False, "is_incomplete_dropped": False,
+                "data_type": "exchange_ohlcv", "is_full_ohlcv": True, "quote_currency": "USD",
+            })
+        coverage_rows.append({
+            "symbol": symbol, "coin_id": symbol.lower(), "exchange": "coinbase",
+            "exchange_symbol": f"{symbol}/USD", "requested": True, "fetched": True,
+            "source_used": "coinbase", "row_count": n_days, "start_date": dates[0].isoformat(),
+            "end_date": dates[-1].isoformat(), "requested_start_date": dates[0].isoformat(),
+            "requested_end_date": dates[-1].isoformat(), "missing_days": 0, "forward_filled_days": 0,
+            "incomplete_rows_dropped": 0, "failure_reason": "", "passed_qa": True, "is_full_ohlcv": True,
+            "data_type": "exchange_ohlcv", "quote_currency": "USD", "provider_attempts": 1,
+            "provider_failure_reasons": "", "fallback_used": False,
+        })
+
+    pd.DataFrame(market_rows).to_parquet(out_dir / "market_ohlcv.parquet", index=False)
+    pd.DataFrame(coverage_rows).to_parquet(out_dir / "market_coverage_report.parquet", index=False)
+    with open(out_dir / "market_manifest.json", "w") as f:
+        json.dump({
+            "snapshot_id": "valid-snap",
+            "output_files": ["market_ohlcv.parquet", "market_coverage_report.parquet"],
+            "failed_assets": [],
+            "requested_assets": n_symbols,
+            "fetched_assets": n_symbols,
+        }, f)
+
+
+def test_verifier_does_not_falsely_fail_on_valid_10x365_output(tmp_path):
+    # Hermetic: build valid 10x365-shaped output in a temp root instead of reading
+    # the gitignored real data dir (which is empty in a fresh checkout).
     cfg = load_config()
-    cfg = {"_project_root": cfg["_project_root"], **cfg}
-    merged = dict(cfg)
+    merged = {**cfg, "_project_root": str(tmp_path)}
     merged["market_data"] = dict(cfg["market_data"])
     merged["market_data"].update(cfg["market_data_10x365"])
+    _write_valid_market_outputs(tmp_path)
     failures = validate_market_outputs(merged)
     assert failures == []

@@ -13,20 +13,27 @@ class _FakeFeatureAgent:
     def __init__(self, cfg):
         self.cfg = cfg
         self.output_paths = {"artifact": "ok"}
+        self.metrics = {
+            "market_rows": 100,
+            "onchain_rows": 40,
+            "full_rows": 100,
+            "final_kept_feature_count": 25,
+        }
 
-    def execute(self):
+    def execute(self, max_retries: int = 1):
         return True
 
 
-def test_cmd_features_runs_both_feature_stages(monkeypatch, capsys):
+def test_cmd_features_runs_unified_feature_agent(monkeypatch, capsys):
     monkeypatch.setattr(main_module, "_get_cfg", lambda: {"_project_root": ".", "paths": {}})
-    monkeypatch.setattr(feature_agent, "FeatureAgentV1", _FakeFeatureAgent)
-    monkeypatch.setattr(feature_agent, "FeatureAgentV2", _FakeFeatureAgent)
+    # main.cmd_features imports the unified FeatureAgent from agents.feature_agent.
+    monkeypatch.setattr(feature_agent, "FeatureAgent", _FakeFeatureAgent)
 
     main_module.cmd_features(SimpleNamespace())
     output = capsys.readouterr().out
 
     assert "[features] Done." in output
+    assert "FullRows=100" in output
 
 
 class _FakeRunner:
