@@ -11,7 +11,6 @@ Supports:
 """
 from __future__ import annotations
 
-import argparse
 import sys
 import time
 from datetime import datetime, timezone
@@ -23,7 +22,7 @@ _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 
 from configs.config import get_config
-from configs.logging_config import get_logger, setup_logging
+from configs.logging_config import get_logger
 
 logger = get_logger("pipeline_runner")
 
@@ -127,34 +126,6 @@ class PipelineRunner:
         except Exception as exc:
             logger.error(f"On-chain validation crashed: {exc}")
             self._results["onchain_validation"] = False
-            return False
-
-    def run_clean(self) -> bool:
-        """Run data cleaning pipeline."""
-        try:
-            from pipelines.data_cleaner import MarketDataCleaner, OnChainDataCleaner
-            from configs.config import resolve_path
-
-            raw_dir = resolve_path(self.cfg, "raw")
-            cleaned_dir = resolve_path(self.cfg, "cleaned")
-
-            # Clean market data
-            mkt_cleaner = MarketDataCleaner(self.cfg)
-            qa_df = mkt_cleaner.clean_all_symbols(
-                raw_dir / "market", cleaned_dir
-            )
-            logger.info(f"Market data cleaning complete: {len(qa_df)} symbols")
-
-            # Clean on-chain data
-            oc_cleaner = OnChainDataCleaner()
-            oc_cleaner.clean_all_symbols(raw_dir / "onchain", cleaned_dir)
-            logger.info("On-chain data cleaning complete")
-
-            self._results["clean"] = True
-            return True
-        except Exception as e:
-            logger.error(f"Data cleaning failed: {e}")
-            self._results["clean"] = False
             return False
 
     def run_features(self) -> bool:
@@ -363,7 +334,6 @@ class PipelineRunner:
             ("universe", lambda: self.run_universe(snapshot_date) if not skip_universe else True),
             ("market_data", self.run_market_data),
             ("onchain", lambda: self.run_onchain() if not skip_onchain else True),
-            ("clean", self.run_clean),
             ("features", self.run_features),
             ("labels", self.run_labels),
             ("models", self.run_models),
@@ -402,82 +372,3 @@ class PipelineRunner:
             "all_success": all(self._results.values()) if self._results else False,
         }
 
-
-def main():
-    """CLI entry point for the pipeline runner."""
-    setup_logging(level="INFO", json_output=False)
-
-    parser = argparse.ArgumentParser(
-        description="CHF Pipeline Runner",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python pipeline_runner.py --full          # Run full pipeline
-  python pipeline_runner.py --stage universe  # Run single stage
-  python pipeline_runner.py --stage market_data
-  python pipeline_runner.py --stage features
-  python pipeline_runner.py --stage models
-  python pipeline_runner.py --stage backtest
-        """,
-    )
-    parser.add_argument("--full", action="store_true", help="Run full pipeline")
-    parser.add_argument(
-        "--stage",
-        choices=[
-            "universe", "market_data", "onchain", "clean",
-            "features", "labels", "models", "portfolio", "backtest"
-        ],
-        help="Run a single pipeline stage",
-    )
-    parser.add_argument(
-        "--skip-universe", action="store_true",
-        help="Skip universe update (use cached)"
-    )
-    parser.add_argument(
-        "--skip-onchain", action="store_true",
-        help="Skip on-chain data fetch (use cached)"
-    )
-    parser.add_argument(
-        "--snapshot-date",
-        default=None,
-        help="Universe snapshot date (YYYY-MM format)"
-    )
-    parser.add_argument(
-        "--horizon",
-        type=int,
-        default=7,
-        help="Label horizon in days (default: 7)"
-    )
-
-    args = parser.parse_args()
-    runner = PipelineRunner()
-
-    if args.full:
-        results = runner.run_full_pipeline(
-            skip_universe=args.skip_universe,
-            skip_onchain=args.skip_onchain,
-            snapshot_date=args.snapshot_date,
-        )
-        success = all(results.values())
-        sys.exit(0 if success else 1)
-    elif args.stage:
-        stage_map = {
-            "universe": lambda: runner.run_universe(args.snapshot_date),
-            "market_data": runner.run_market_data,
-            "onchain": runner.run_onchain,
-            "clean": runner.run_clean,
-            "features": runner.run_features,
-            "labels": runner.run_labels,
-            "models": runner.run_models,
-            "portfolio": lambda: runner.run_portfolio(horizon=args.horizon),
-            "backtest": runner.run_backtest,
-        }
-        success = stage_map[args.stage]()
-        sys.exit(0 if success else 1)
-    else:
-        parser.print_help()
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()

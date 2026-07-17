@@ -836,8 +836,8 @@ elif page == "🤖 Model Diagnostics":
 # ─────────────────────────────────────────────────────────────────────────────
 
 elif page == "⚙️ Pipeline Control":
-    st.title("⚙️ Pipeline Control")
-    st.caption("Trigger pipeline stages, view run history, and monitor status.")
+    st.title("⚙️ Pipeline Monitor")
+    st.caption("Read-only view of run history and pipeline status.")
 
     # Run history from DB
     import sqlite3
@@ -881,85 +881,19 @@ elif page == "⚙️ Pipeline Control":
 
     st.divider()
 
-    # Manual pipeline triggers
-    st.subheader("Manual Pipeline Triggers")
-    st.warning(
-        "⚠️ These buttons trigger pipeline stages in the background. "
-        "Check terminal output for progress."
+    # Pipeline stages are triggered from the CLI, not from this dashboard.
+    # This page is intentionally read-only: spawning live-API pipeline runs from
+    # an unauthenticated web UI (the previous behaviour) had no access control or
+    # concurrency lock. Run stages with the canonical entry point instead:
+    st.subheader("Run the pipeline")
+    st.markdown(
+        "This dashboard is **read-only**. Trigger pipeline stages from the CLI:\n\n"
+        "```bash\n"
+        "python main.py full        # full pipeline with inter-stage verify gates\n"
+        "python main.py market      # a single stage (universe/market/onchain/\n"
+        "                           # features/labels/models/portfolio/backtest)\n"
+        "```"
     )
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        if st.button("🌐 Update Universe", use_container_width=True):
-            import subprocess
-            subprocess.Popen(
-                [sys.executable, str(_ROOT / "pipelines" / "pipeline_runner.py"),
-                 "--stage", "universe"],
-                cwd=str(_ROOT),
-            )
-            st.success("Universe update started!")
-
-        if st.button("📈 Fetch Market Data", use_container_width=True):
-            import subprocess
-            subprocess.Popen(
-                [sys.executable, str(_ROOT / "pipelines" / "pipeline_runner.py"),
-                 "--stage", "market_data"],
-                cwd=str(_ROOT),
-            )
-            st.success("Market data fetch started!")
-
-    with col2:
-        if st.button("🔧 Build Features", use_container_width=True):
-            import subprocess
-            subprocess.Popen(
-                [sys.executable, str(_ROOT / "pipelines" / "pipeline_runner.py"),
-                 "--stage", "features"],
-                cwd=str(_ROOT),
-            )
-            st.success("Feature engineering started!")
-
-        if st.button("🤖 Train Models", use_container_width=True):
-            import subprocess
-            subprocess.Popen(
-                [sys.executable, str(_ROOT / "pipelines" / "pipeline_runner.py"),
-                 "--stage", "models"],
-                cwd=str(_ROOT),
-            )
-            st.success("Model training started!")
-
-    with col3:
-        if st.button("⚖️ Generate Portfolio", use_container_width=True):
-            import subprocess
-            subprocess.Popen(
-                [sys.executable, str(_ROOT / "pipelines" / "pipeline_runner.py"),
-                 "--stage", "portfolio"],
-                cwd=str(_ROOT),
-            )
-            st.success("Portfolio generation started!")
-
-        if st.button("📊 Run Backtest", use_container_width=True):
-            import subprocess
-            subprocess.Popen(
-                [sys.executable, str(_ROOT / "pipelines" / "pipeline_runner.py"),
-                 "--stage", "backtest"],
-                cwd=str(_ROOT),
-            )
-            st.success("Backtest started!")
-
-    st.divider()
-
-    # Full pipeline
-    col_full, _ = st.columns([1, 2])
-    with col_full:
-        if st.button("🚀 Run Full Pipeline", use_container_width=True, type="primary"):
-            import subprocess
-            subprocess.Popen(
-                [sys.executable, str(_ROOT / "pipelines" / "pipeline_runner.py"),
-                 "--full"],
-                cwd=str(_ROOT),
-            )
-            st.success("Full pipeline started! Check terminal for progress.")
 
     # Run history table
     if not run_df.empty:

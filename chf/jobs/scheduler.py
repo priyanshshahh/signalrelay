@@ -41,7 +41,6 @@ def run_features_job():
     """Scheduled job: compute features."""
     from pipelines.pipeline_runner import PipelineRunner
     runner = PipelineRunner()
-    runner.run_clean()
     runner.run_features()
     runner.run_labels()
 
