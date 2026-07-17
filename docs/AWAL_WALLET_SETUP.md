@@ -1,6 +1,6 @@
 # Agentic Wallet (AWAL) — authenticate before x402 pay
 
-Prerequisite for `npx awal x402 pay` (Tavily 402, on-chain settlement). See also [CDP docs index](cdp-llms.txt) and the live index at https://docs.cdp.coinbase.com/llms.txt
+Prerequisite for `npx awal x402 pay` (Tavily 402, on-chain settlement). See also the CDP docs index at https://docs.cdp.coinbase.com/llms.txt
 
 ## 1. Check status
 

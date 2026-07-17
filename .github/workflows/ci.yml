@@ -39,13 +39,15 @@ jobs:
         run: pip install -r requirements.txt
       - name: Test
         working-directory: chf
-        # Four tests are deselected because they require pipeline-generated
+        # Three tests are deselected because they require pipeline-generated
         # local data artifacts (chf/data/raw/*, gitignored) that do not exist
         # in a fresh checkout. All other tests run against committed fixtures.
+        # (A fourth test, test_cache_is_used_before_live_api, used to need
+        # deselecting too because it hardcoded a /Users/priyansh fixture
+        # path; that's now repo-relative so it runs here like any other.)
         run: |
           pytest tests -q \
             --deselect tests/test_cli_commands.py::test_cmd_features_runs_both_feature_stages \
-            --deselect tests/test_market_data_agent_research_mode.py::test_cache_is_used_before_live_api \
             --deselect tests/test_market_data_agent_research_mode.py::test_verifier_does_not_falsely_fail_on_valid_10x365_output \
             --deselect tests/test_pipeline_integration.py::test_pipeline_agents_run_end_to_end_from_market_data
 
