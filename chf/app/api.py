@@ -69,14 +69,26 @@ if HAS_FASTAPI:
 
     @app.get("/weights")
     def get_weights(
-        strategy: str = Query("top_k_equal_weight", description="Portfolio strategy"),
+        strategy: Optional[str] = Query(None, description="Filter to a single portfolio strategy"),
     ) -> Dict[str, Any]:
-        """Get latest portfolio weights."""
-        path = _root / "data" / "allocations" / "latest_allocation.parquet"
+        """Get latest portfolio weights from the canonical PortfolioAgent output."""
+        import pandas as pd
+        path = _root / "data" / "allocations" / "allocations_from_predictions.parquet"
         data = _load_parquet(path)
         if not data:
             raise HTTPException(status_code=404, detail="No allocation data available")
-        return {"strategy": strategy, "weights": data, "count": len(data)}
+
+        df = pd.DataFrame(data)
+        if strategy and "strategy_name" in df.columns:
+            df = df[df["strategy_name"] == strategy]
+        if "date_ts" in df.columns and not df.empty:
+            df["date_ts"] = pd.to_datetime(df["date_ts"])
+            df = df[df["date_ts"] == df["date_ts"].max()]
+        return {
+            "strategy": strategy,
+            "weights": df.to_dict(orient="records"),
+            "count": len(df),
+        }
 
     @app.get("/signals")
     def get_signals(
@@ -84,20 +96,27 @@ if HAS_FASTAPI:
         horizon: int = Query(7, description="Prediction horizon in days"),
         limit: int = Query(50, description="Max results"),
     ) -> Dict[str, Any]:
-        """Get latest model signals/predictions."""
+        """Get latest model signals/predictions from the canonical ModelAgent output."""
         import pandas as pd
-        path = _root / "data" / "predictions" / f"predictions_{model}_h{horizon}d.parquet"
+        path = _root / "data" / "predictions" / "model_predictions.parquet"
         data = _load_parquet(path)
         if not data:
             raise HTTPException(status_code=404, detail="No prediction data available")
 
-        # Return most recent predictions
         df = pd.DataFrame(data)
+        if "model_name" in df.columns:
+            df = df[df["model_name"] == model]
+        if "horizon_days" in df.columns:
+            df = df[df["horizon_days"] == horizon]
+        if df.empty:
+            raise HTTPException(status_code=404, detail="No predictions for that model/horizon")
+
+        # Return most recent predictions, best first
         if "date_ts" in df.columns:
             df["date_ts"] = pd.to_datetime(df["date_ts"])
-            latest_date = df["date_ts"].max()
-            df = df[df["date_ts"] == latest_date]
-        df = df.sort_values("predicted_return", ascending=False).head(limit)
+            df = df[df["date_ts"] == df["date_ts"].max()]
+        sort_col = "prediction" if "prediction" in df.columns else df.columns[0]
+        df = df.sort_values(sort_col, ascending=False).head(limit)
         return {
             "model": model,
             "horizon_days": horizon,
@@ -132,13 +151,12 @@ if HAS_FASTAPI:
 
     @app.get("/latest_snapshot")
     def get_latest_snapshot() -> Dict[str, Any]:
-        """Get the latest snapshot metadata."""
+        """Get the latest universe snapshot metadata from UniverseAgent's manifest."""
         import json
-        universe_dir = _root / "data" / "raw" / "universe"
-        meta_files = sorted(universe_dir.glob("snapshot_meta_*.json"), reverse=True)
-        if not meta_files:
+        manifest_path = _root / "data" / "raw" / "universe" / "universe_manifest.json"
+        if not manifest_path.exists():
             raise HTTPException(status_code=404, detail="No snapshot data available")
-        with open(meta_files[0]) as f:
+        with open(manifest_path) as f:
             meta = json.load(f)
         return meta
 

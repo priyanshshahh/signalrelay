@@ -136,20 +136,32 @@ def load_features() -> pd.DataFrame:
 
 
 def load_predictions(model: str = "lightgbm", horizon: int = 7) -> pd.DataFrame:
-    """Load model predictions."""
-    path = DATA_ROOT / "predictions" / f"predictions_{model}_h{horizon}d.parquet"
-    if not path.exists():
-        # Try any available
-        files = list((DATA_ROOT / "predictions").glob("predictions_*.parquet"))
-        if files:
-            return load_parquet_safe(str(files[0]))
-    return load_parquet_safe(str(path))
+    """Load model predictions from the canonical ModelAgent output."""
+    path = DATA_ROOT / "predictions" / "model_predictions.parquet"
+    df = load_parquet_safe(str(path))
+    if df.empty:
+        return df
+    if "model_name" in df.columns:
+        df = df[df["model_name"] == model]
+    if "horizon_days" in df.columns:
+        df = df[df["horizon_days"] == horizon]
+    # Surface canonical columns under the names the dashboard pages expect.
+    if "prediction" in df.columns and "predicted_return" not in df.columns:
+        df = df.rename(columns={"prediction": "predicted_return"})
+    if "actual_forward_return" in df.columns and "actual_return" not in df.columns:
+        df = df.rename(columns={"actual_forward_return": "actual_return"})
+    return df.copy()
 
 
 def load_allocations(strategy: str = "top_k_equal_weight") -> pd.DataFrame:
-    """Load portfolio allocations."""
-    path = DATA_ROOT / "allocations" / f"allocations_{strategy}.parquet"
-    return load_parquet_safe(str(path))
+    """Load portfolio allocations from the canonical PortfolioAgent output."""
+    path = DATA_ROOT / "allocations" / "allocations_from_predictions.parquet"
+    df = load_parquet_safe(str(path))
+    if df.empty:
+        return df
+    if strategy and "strategy_name" in df.columns:
+        df = df[df["strategy_name"] == strategy]
+    return df.copy()
 
 
 def load_backtest_summary() -> pd.DataFrame:
@@ -338,7 +350,7 @@ elif page == "📡 Signal Monitor":
     # Controls
     col1, col2 = st.columns(2)
     with col1:
-        model_choice = st.selectbox("Model", ["lightgbm", "random_forest", "xgboost"])
+        model_choice = st.selectbox("Model", ["lightgbm", "random_forest", "baseline_cross_sectional_mean"])
     with col2:
         horizon_choice = st.selectbox("Horizon", [7, 14, 30])
 
