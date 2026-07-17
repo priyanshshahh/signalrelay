@@ -14,3 +14,9 @@ polymarket-sentiment-agent/backend/.env
 __MACOSX/
 .venv-backend/
 .venv-chf/
+
+# Editor/agent scaffolding — not needed by the app, and has previously
+# carried a third party's contact info (workshop agenda). Local-only.
+.cursor/
+**/.cursor/
+docs/cdp-llms.txt
