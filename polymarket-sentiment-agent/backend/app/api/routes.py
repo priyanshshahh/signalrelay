@@ -5,9 +5,10 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import desc
 
+from ..auth import require_admin_token
 from ..config import settings
 from ..database import session_scope
 from ..models import AgentState, LogEvent, MarketSnapshot, NewsItem, Signal, Trade
@@ -93,25 +94,25 @@ def status():
     )
 
 
-@router.post("/kill-switch")
+@router.post("/kill-switch", dependencies=[Depends(require_admin_token)])
 def kill_switch(body: KillSwitchIn):
     risk.set_kill_switch(body.enabled)
     return {"kill_switch": body.enabled}
 
 
-@router.post("/loop/run-once")
+@router.post("/loop/run-once", dependencies=[Depends(require_admin_token)])
 async def run_once():
     await _run_once()
     return {"ok": True}
 
 
-@router.post("/loop/start")
+@router.post("/loop/start", dependencies=[Depends(require_admin_token)])
 def loop_start():
     agent_loop.start()
     return {"running": True}
 
 
-@router.post("/loop/stop")
+@router.post("/loop/stop", dependencies=[Depends(require_admin_token)])
 async def loop_stop():
     await agent_loop.stop()
     return {"running": False}

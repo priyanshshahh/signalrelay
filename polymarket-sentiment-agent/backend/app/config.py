@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     daily_drawdown_usdc: float = 25.0
     kill_switch: bool = False
 
+    # Admin auth — bearer token required on control endpoints
+    # (/api/kill-switch, /api/loop/*). Unset means those endpoints are
+    # disabled (503), not open — CORS alone does not stop curl.
+    admin_token: str = ""
+
     # Trading mode
     trading_mode: Literal["PAPER", "LIVE"] = "PAPER"
     wallet_private_key: str = ""

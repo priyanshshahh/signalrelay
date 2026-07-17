@@ -312,12 +312,24 @@ from `/`.
 | `GET` | `/api/markets` | Free | Latest snapshot per (market, outcome) |
 | `GET` | `/api/equity-curve` | Free | Cumulative PnL time series |
 | `GET` | `/api/logs?limit=N&component=...` | Free | Decision log events |
-| `POST` | `/api/kill-switch` | Free | Body `{enabled: bool}` |
-| `POST` | `/api/loop/run-once` | Free | Force one cycle immediately |
-| `POST` | `/api/loop/start` | Free | Start the background loop |
-| `POST` | `/api/loop/stop` | Free | Stop the background loop |
+| `POST` | `/api/kill-switch` | **Admin token** | Body `{enabled: bool}` |
+| `POST` | `/api/loop/run-once` | **Admin token** | Force one cycle immediately |
+| `POST` | `/api/loop/start` | **Admin token** | Start the background loop |
+| `POST` | `/api/loop/stop` | **Admin token** | Stop the background loop |
 
 Auto-generated OpenAPI/Swagger at `/docs` (FastAPI default).
+
+The four control endpoints above require `Authorization: Bearer <ADMIN_TOKEN>`.
+CORS headers don't stop a direct `curl`, so these are gated by a shared
+secret rather than relying on the browser to behave. If `ADMIN_TOKEN` is
+unset, the endpoints are disabled and return `503` — they never run open.
+
+```bash
+curl -i -X POST http://localhost:8000/api/kill-switch \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"enabled": true}'
+```
 
 Try it (against a local or deployed instance):
 
@@ -383,6 +395,7 @@ runs with zero config. See `backend/.env.example` for the full list.
 | `MAX_OPEN_POSITIONS` | `5` | Refuse new entries past this. |
 | `DAILY_DRAWDOWN_USDC` | `25` | If 24h realized PnL drops below `-25`, auto-engage kill switch. |
 | `KILL_SWITCH` | `false` | Initial kill switch state. |
+| `ADMIN_TOKEN` | *(empty)* | Bearer token for `/api/kill-switch` and `/api/loop/*`. Unset disables those endpoints (503) instead of leaving them open. |
 | `MARKET_KEYWORDS` | `bitcoin,ethereum,crypto,sec,etf,fed` | Filter for market discovery. |
 | `WATCH_MARKETS` | *(empty)* | Comma-separated `condition_id`s to pin specific markets. Overrides keyword discovery. |
 | `MAX_MARKETS` | `5` | How many markets to track. |
