@@ -823,7 +823,7 @@ def test_cache_is_used_before_live_api(tmp_path):
         timeframe="1d",
         live_api_enabled=False,
         use_fixtures=True,
-        fixture_dir=Path("/Users/priyansh/Desktop/chf/tests/fixtures/market"),
+        fixture_dir=Path(__file__).parent / "fixtures" / "market",
     )
     df1 = provider.fetch_ohlcv("BTC/USDC", since_dt=datetime_from_str("2024-01-01T00:00:00Z"))
     assert not df1.empty
@@ -833,7 +833,7 @@ def test_cache_is_used_before_live_api(tmp_path):
         timeframe="1d",
         live_api_enabled=False,
         use_fixtures=False,
-        fixture_dir=Path("/Users/priyansh/Desktop/chf/tests/fixtures/market"),
+        fixture_dir=Path(__file__).parent / "fixtures" / "market",
     )
     df2 = provider2.fetch_ohlcv("BTC/USDC", since_dt=datetime_from_str("2024-01-01T00:00:00Z"))
     assert not df2.empty
@@ -988,7 +988,9 @@ def test_provider_fallback_after_rate_limit(tmp_path, monkeypatch):
             return pd.DataFrame()
         if self.exchange_name == "kucoin":
             if exchange_symbol == "BTC/USDC":
-                rows = json.loads(Path("/Users/priyansh/Desktop/chf/tests/fixtures/market/ccxt_kucoin_ohlcv_BTC_USDC_2024-01-01_1d.json").read_text())
+                rows = json.loads(
+                    (Path(__file__).parent / "fixtures" / "market" / "ccxt_kucoin_ohlcv_BTC_USDC_2024-01-01_1d.json").read_text()
+                )
                 return pd.DataFrame(
                     {
                         "date_ts": pd.to_datetime([row[0] for row in rows], unit="ms", utc=True),
