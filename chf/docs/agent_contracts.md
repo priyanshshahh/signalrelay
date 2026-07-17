@@ -6,148 +6,137 @@ This repo implements deterministic pipeline workers, not autonomous AI agents. E
 
 The public pipeline order is:
 
-`universe -> market -> onchain -> clean -> features -> labels -> models -> portfolio -> backtest`
+`universe -> market -> onchain -> features -> labels -> models -> portfolio -> backtest`
+
+`AlphaResearchAgent` is a separate signal-screening sweep reachable only via
+`python main.py alpha_research`; it is structurally incapable of self-certifying
+alpha (only `BacktestAgent` can). See `docs/ARCHITECTURE.md` for the full system map.
+
+> **Filenames are canonical single files.** The pipeline writes one unified file
+> per artifact (e.g. `full_features_pruned.parquet`, `model_predictions.parquet`),
+> not per-symbol or per-model files. There is a single unified `FeatureAgent`
+> (no `FeatureAgentV1`/`V2`). `ModelAgent` does not write `.pkl` files and does not
+> call MLflow.
 
 ## UniverseAgent
 
-- Purpose: Build the eligible monthly crypto universe from CoinGecko.
-- Upstream inputs: `configs/run_config.yaml`
+- Purpose: Build the eligible monthly crypto universe.
+- Upstream inputs: `configs/run_config.yaml`, `configs/universe_exclusions.yaml`
 - Output artifacts:
-  - `data/raw/universe/universe_YYYYMM.parquet`
-  - `data/raw/universe/exclusions_YYYYMM.parquet`
-  - `data/raw/universe/snapshot_meta_YYYYMM.json`
-- Core logic: fetch top-N assets, filter stablecoins/wrapped assets, persist eligibility snapshot.
+  - `data/raw/universe/universe_monthly.parquet`
+  - `data/raw/universe/universe_membership.parquet`
+  - `data/raw/universe/exclusions_monthly.parquet`
+  - `data/raw/universe/universe_coverage_report.parquet`
+  - `data/raw/universe/universe_manifest.json`
+- Core logic: fetch top-N assets, exclude stablecoins/wrapped/bridged/LST/synthetic, apply 365-day maturity + exchange-tradability + on-chain-coverage gates, persist eligibility snapshot.
 - Failure modes: upstream API failure, invalid config, empty universe snapshot.
-- Done when: latest universe parquet and metadata JSON exist and contain eligible assets.
+- Done when: `universe_monthly.parquet` and `universe_manifest.json` exist and contain eligible assets.
 
 ## MarketDataAgent
 
-- Purpose: Fetch daily OHLCV history for the eligible universe plus benchmarks.
-- Upstream inputs:
-  - latest universe snapshot, or fallback benchmark list
-  - `market_data` config
+- Purpose: Fetch daily OHLCV history for the eligible universe.
+- Upstream inputs: latest universe snapshot, `market_data` config
 - Output artifacts:
-  - `data/raw/market/{SYMBOL}_ohlcv.parquet`
-  - `data/raw/market/year=YYYY/month=MM/{SYMBOL}.parquet`
-  - `data/raw/market/qa_report.parquet`
-  - `data/raw/market/manifest.json`
-- Core logic: fetch backfill or incremental OHLCV, persist both flat and hive layouts, emit QA report.
-- Failure modes: exchange/API failure, no symbols, empty fetches, corrupted parquet writes.
-- Done when: at least one symbol parquet exists and QA report/manifest are written.
+  - `data/raw/market/market_ohlcv.parquet` (canonical combined frame)
+  - `data/raw/market/by_symbol/{SYMBOL}.parquet`
+  - `data/raw/market/market_coverage_report.parquet`
+  - `data/raw/market/market_manifest.json`
+- Core logic: exchange-first via ccxt (Coinbase/Kraken/KuCoin/Gemini) with a 4-provider close-only fallback; hard-bans Binance and USDT-quoted pairs; emits per-symbol coverage QA.
+- Failure modes: exchange/API failure, no symbols, empty fetches, low coverage.
+- Done when: `market_ohlcv.parquet`, coverage report, and manifest exist and pass the verifier.
 
 ## OnChainAgent
 
-- Purpose: Collect daily on-chain features from CoinMetrics and DeFiLlama.
-- Upstream inputs:
-  - latest universe snapshot
-  - `on_chain` config
+- Purpose: Collect daily on-chain/DeFi fundamentals aligned to each symbol's market calendar.
+- Upstream inputs: latest universe snapshot, `onchain` config
 - Output artifacts:
-  - `data/raw/onchain/{SYMBOL}_onchain.parquet`
-  - `data/raw/onchain/coverage_report.parquet`
-  - `data/raw/onchain/manifest.json`
-- Core logic: fetch source-specific metrics, outer-merge by `date_ts`/`symbol`, persist symbol files and coverage summary.
+  - `data/raw/onchain/onchain_wide.parquet`
+  - `data/raw/onchain/onchain_observations.parquet`
+  - `data/raw/onchain/onchain_coverage_report.parquet`
+  - `data/raw/onchain/onchain_manifest.json`
+- Core logic: fetch source-specific metrics from 6 providers, align to each symbol's market dates, deliberately *not* forward-filling.
 - Failure modes: missing provider coverage, API failures, empty merged frames.
-- Done when: symbol parquet files or an explicit empty-onchain fallback path exist and coverage report is updated.
+- Done when: `onchain_wide.parquet`/`onchain_observations.parquet` and the coverage report exist.
 
-## Clean Stage
+## FeatureAgent
 
-- Purpose: Normalize raw market and on-chain inputs before feature engineering.
+- Purpose: Build market + lagged on-chain features and emit final feature selection metadata.
 - Upstream inputs:
-  - `data/raw/market/*`
-  - `data/raw/onchain/*`
-- Output artifacts:
-  - `data/cleaned/*_ohlcv_clean.parquet`
-  - `data/cleaned/*_onchain_clean.parquet`
-- Core logic: enforce timestamp normalization, deduplicate, repair small gaps where supported, and stage cleaned files for downstream use.
-- Failure modes: missing raw inputs, malformed date columns, invalid OHLCV rows.
-- Done when: cleaned parquet files exist or the stage explicitly falls back to raw files downstream.
-
-## FeatureAgentV1
-
-- Purpose: Build market-derived features from OHLCV.
-- Upstream inputs:
-  - cleaned OHLCV if available, otherwise raw OHLCV
+  - `data/raw/market/market_ohlcv.parquet`
+  - `data/raw/onchain/onchain_wide.parquet`, `onchain_observations.parquet`
+  - `data/raw/universe/universe_monthly.parquet`
 - Output artifacts:
   - `data/features/market_features.parquet`
-  - `data/features/feature_dictionary.json`
-- Core logic: compute returns, volatility, skew, beta, volume ratios, reversal, ATR proxy, then winsorize and cross-sectionally z-score.
-- Failure modes: missing OHLCV files, missing benchmark BTC history, empty concatenation.
-- Done when: `market_features.parquet` exists with one row per `symbol/date_ts` and numeric feature columns.
-
-## FeatureAgentV2
-
-- Purpose: Merge on-chain features into the market feature store and emit final feature selection metadata.
-- Upstream inputs:
-  - `data/features/market_features.parquet`
-  - raw on-chain symbol files
-- Output artifacts:
+  - `data/features/onchain_features.parquet`
   - `data/features/full_features.parquet`
-  - `data/features/feature_keep_list.json`
-- Core logic: compute on-chain transforms, merge onto market features, run correlation-based redundancy pruning, persist final feature store.
-- Failure modes: missing market feature store, malformed on-chain files, empty merged features.
-- Done when: `full_features.parquet` exists even if the run falls back to market-only features.
+  - `data/features/full_features_pruned.parquet`
+  - `data/features/feature_dictionary.json`, `feature_keep_list.json`, `feature_manifest.json`
+- Core logic: compute returns/momentum, risk, mean-reversion, liquidity, range/drawdown, BTC beta, and lagged on-chain transforms; cross-sectionally winsorize + z-score; correlation + VIF pruning to 20–60 features. A `PROHIBITED_COLUMN_TOKENS` denylist blocks leaky column names.
+- Failure modes: missing canonical inputs, empty concatenation, all features pruned.
+- Done when: `full_features_pruned.parquet` exists with one row per `symbol/date_ts` and numeric feature columns.
 
 ## LabelAgent
 
-- Purpose: Generate leakage-safe forward return targets.
-- Upstream inputs:
-  - cleaned OHLCV if available, otherwise raw OHLCV
+- Purpose: Generate leakage-safe forward-return targets and the modeling dataset.
+- Upstream inputs: `data/raw/market/market_ohlcv.parquet`, feature store + manifests
 - Output artifacts:
   - `data/labels/labels_{horizon}d.parquet`
-  - `data/labels/label_metadata.json`
-- Core logic: compute `ln(P[t+h] / P[t])` per symbol for configured horizons and drop incomplete tails.
-- Failure modes: missing OHLCV, malformed timestamps, empty symbol histories.
-- Done when: horizon parquet files exist and contain `label_value`.
+  - `data/labels/label_matrix.parquet`
+  - `data/labels/modeling_dataset.parquet` (features + labels joined, pruned)
+  - `data/labels/modeling_dataset_unpruned.parquet` (optional)
+  - `data/labels/label_coverage_report.parquet`, `label_manifest.json`
+- Core logic: compute `label_fwd_logret = ln(P[t+h] / P[t])` per symbol at horizons [7, 14, 30]d with exact-calendar-horizon enforcement; drop incomplete tails; prohibited-column leakage scan.
+- Failure modes: non-positive prices, malformed timestamps, empty histories, detected leakage.
+- Done when: horizon parquet files and `modeling_dataset.parquet` exist and contain `label_fwd_logret` (+ `label_simple_return`, `label_direction`, `horizon_days`).
 
 ## ModelAgent
 
-- Purpose: Train tabular models with walk-forward validation and persist predictions/metrics.
-- Upstream inputs:
-  - `data/features/full_features.parquet` or `market_features.parquet`
-  - `data/labels/labels_{horizon}d.parquet`
+- Purpose: Train tabular models with purged + embargoed walk-forward CV and persist predictions/metrics.
+- Upstream inputs: `data/labels/modeling_dataset.parquet`, feature manifest + keep list
 - Output artifacts:
-  - `data/predictions/predictions_{model}_h{horizon}d.parquet`
-  - `data/predictions/metrics_{model}_h{horizon}d.json`
-  - `artifacts/models/{model}_h{horizon}d.pkl`
-  - MLflow artifacts under `artifacts/` and `mlruns/`
-- Core logic: join features/labels, pick numeric feature columns, run purged walk-forward validation, save predictions and metrics.
-- Failure modes: missing features/labels, no valid splits, model dependency missing, MLflow logging failure.
-- Done when: at least one prediction parquet and metrics JSON are written for the requested model/horizon.
+  - `data/predictions/model_predictions.parquet`
+  - `data/predictions/model_leaderboard.parquet`
+  - `data/predictions/fold_metrics.parquet`
+  - `data/predictions/feature_importance.parquet`
+  - `data/predictions/model_manifest.json`, `data_quality_model.md`
+- Core logic: baseline-mean / RandomForest / LightGBM across horizon × feature-set, purged + embargoed walk-forward CV, and a signal gate (rank-IC ≥ 0.01, t-stat ≥ 1.5, coverage ≥ 0.80, folds ≥ 3). Predictions carry `model_name`, `feature_set`, `horizon_days`, `prediction`, and realized `actual_forward_return`/rank columns used only for the leaderboard.
+- Failure modes: missing modeling dataset, no valid splits, LightGBM unavailable, empty OOS predictions.
+- Done when: `model_predictions.parquet` and `model_leaderboard.parquet` are written.
 
 ## PortfolioAgent
 
-- Purpose: Turn predictions into rebalance weights and transaction logs.
+- Purpose: Turn predictions into rebalance weights across allocation strategies.
 - Upstream inputs:
-  - prediction parquet for the chosen model/horizon
-  - raw market data for liquidity filtering
+  - `data/predictions/model_predictions.parquet`, `model_leaderboard.parquet`
+  - `data/raw/market/market_ohlcv.parquet` (for liquidity/execution prices)
 - Output artifacts:
+  - `data/allocations/allocations_from_predictions.parquet` (canonical, all strategies)
   - `data/allocations/allocations_{strategy}.parquet`
-  - `data/allocations/allocations_top_{k}_equal_weight.parquet`
-  - `data/allocations/allocations_transaction_log.parquet`
-  - `data/allocations/latest_allocation.parquet`
-- Core logic: filter to latest available predictions at each rebalance date, apply liquidity and positive-signal filters, compute weights, and track turnover.
-- Failure modes: missing predictions, no positive signals, empty rebalance dates, missing market data for liquidity checks.
-- Done when: at least one allocation parquet exists and `latest_allocation.parquet` is updated.
+  - `data/allocations/allocation_coverage_report.parquet`
+  - `data/allocations/allocation_manifest.json`
+- Core logic: select a model/horizon/feature-set (best available from the leaderboard, else configured fallback), filter to usable predictions, compute weights across 5 strategies. Blocks label-leaking inputs via `FORBIDDEN_INPUT_TERMS` unless a diagnostic override is set. Emits `weight`, `strategy_name`, `symbol`, `date_ts`.
+- Failure modes: missing predictions, forbidden realized columns present, no usable predictions for the selected combo, empty allocations.
+- Done when: `allocations_from_predictions.parquet` exists and is non-empty.
 
 ## BacktestAgent
 
-- Purpose: Evaluate the allocation strategy against benchmarks with transaction costs.
+- Purpose: Evaluate the allocation strategy against benchmarks with transaction costs and a strict alpha gate.
 - Upstream inputs:
-  - allocation parquet files with `symbol/date_ts/weight`
-  - raw market OHLCV
+  - `data/allocations/allocations_from_predictions.parquet` (+ manifest)
+  - `data/raw/market/market_ohlcv.parquet`
 - Output artifacts:
   - `data/backtests/equity_curves.parquet`
   - `data/backtests/backtest_summary.parquet`
-  - `data/backtests/backtest_summary.json`
-  - `data/backtests/vbt_stats.json`
-- Core logic: run the main strategy, BTC benchmark, equal-weight benchmark, cost sweeps, K sweeps, and subperiod tests.
-- Failure modes: no allocation files, no market prices, vectorbt unavailable, malformed allocation artifacts.
-- Done when: `backtest_summary.parquet` exists and includes populated risk/return metrics.
+  - `data/backtests/benchmark_summary.parquet`
+  - `data/backtests/strategy_comparison.parquet`, `cost_sweep.parquet`, `drawdown_series.parquet`
+  - `data/reports/alpha_report.json`, `alpha_report.md`
+- Core logic: run the main strategy against 5 benchmarks with 20bps costs + a cost sweep, execution-date-after-signal-date checks, and a strict multi-condition alpha gate that only `BacktestAgent` can satisfy. All performance metrics are hand-rolled pandas/numpy (`_perf_from_returns`). Emits `strategy_name`, `sharpe`, `total_return`, and drawdown metrics.
+- Failure modes: no allocation files, no market prices, malformed allocation artifacts.
+- Done when: `backtest_summary.parquet` exists with populated risk/return metrics.
 
 ## Demo Mode
 
-- Purpose: Emit canonical synthetic artifacts for dashboard loading and offline acceptance checks.
+- Purpose: Emit canonical synthetic artifacts for dashboard/API loading and offline acceptance checks.
 - Entry point: `python main.py demo`
-- Output artifacts:
-  - canonical raw/features/labels/predictions/allocations/backtests files matching the live pipeline naming conventions
-- Done when: dashboard/API loaders can read the generated files without needing special-case paths.
+- Output artifacts: canonical raw/features/labels/predictions/allocations/backtests files matching the live pipeline naming above.
+- Done when: dashboard/API loaders can read the generated files without special-case paths.
