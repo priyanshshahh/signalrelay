@@ -3,15 +3,14 @@ CHF Ablation Study
 ==================
 Runs two model variants to isolate the marginal value of on-chain features:
 
-  1. market_only  — uses only price-derived features
-     (momentum_7d, momentum_14d, momentum_30d, momentum_90d,
-      volatility_30d, beta_60d, skewness_30d, turnover_ratio)
+  1. market_only        — only price/volume-derived features
+  2. market_plus_onchain — all features, including on-chain fundamentals
 
-  2. market_plus_onchain — uses all features including on-chain
-     (adds nvt_ratio, mvrv_proxy, active_address_growth, tvl_ratio)
-
-Each variant runs the full walk-forward CV and logs to MLflow.
-Results are saved to data/reports/ablation_results.json.
+Feature membership is classified dynamically from the real FeatureAgent output
+(via the same ``ONCHAIN_HINTS`` token list ``ModelAgent`` uses to build its
+``market_only`` / ``market_plus_onchain`` feature sets), so this study never
+drifts out of sync with the pipeline's actual column names. Each variant runs
+the pipeline's canonical purged + embargoed walk-forward CV and reports Rank IC.
 
 Run command
 -----------
@@ -31,27 +30,29 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 import pandas as pd
 
-# ── Feature column groups ────────────────────────────────────────────────────
-MARKET_ONLY_FEATURES = [
-    "ret_7d",
-    "ret_14d",
-    "ret_30d",
-    "ret_90d",
-    "vol_30d",
-    "beta_btc_60d",
-    "skew_30d",
-    "vol_ratio_30d",
-    "reversal_3_30",
-]
+from agents.model_agent import DIAGNOSTIC_FEATURE_COLUMNS, MODEL_METADATA_COLUMNS, ONCHAIN_HINTS
 
-ONCHAIN_FEATURES = [
-    "nvt_ratio",
-    "mvrv_proxy",
-    "adr_growth_30d",
-    "tvl_ratio",
-]
+# Preferred label columns produced by LabelAgent, in priority order.
+_LABEL_COLUMN_CANDIDATES = ("label_fwd_logret", "label_simple_return")
 
-ALL_FEATURES = MARKET_ONLY_FEATURES + ONCHAIN_FEATURES
+
+def _is_onchain(col: str) -> bool:
+    lower = col.lower()
+    return any(hint in lower for hint in ONCHAIN_HINTS)
+
+
+def _classify_features(panel: pd.DataFrame, label_col: str) -> tuple[list[str], list[str]]:
+    """Return (market_only_features, all_features) from the panel's numeric columns."""
+    reserved = set(MODEL_METADATA_COLUMNS) | set(DIAGNOSTIC_FEATURE_COLUMNS) | {label_col}
+    candidates: List[str] = []
+    for col in panel.columns:
+        if col in reserved or col.startswith("label_") or col in ("symbol", "date_ts", "horizon_days"):
+            continue
+        if pd.api.types.is_numeric_dtype(panel[col]):
+            candidates.append(col)
+    market_only = sorted(c for c in candidates if not _is_onchain(c))
+    all_features = sorted(candidates)
+    return market_only, all_features
 
 
 def run_ablation(
@@ -66,9 +67,9 @@ def run_ablation(
     Parameters
     ----------
     feature_df : pd.DataFrame
-        Full feature store with columns for all features.
+        Full feature store (real FeatureAgent output), keyed by symbol + date_ts.
     label_df : pd.DataFrame
-        Label DataFrame with forward return columns.
+        Label DataFrame (real LabelAgent output) with a forward-return label column.
     cfg : dict
         Project config dict.
     output_dir : Path, optional
@@ -79,82 +80,70 @@ def run_ablation(
     dict with keys 'market_only' and 'market_plus_onchain', each containing
     walk-forward Rank IC statistics.
     """
-    from models.walk_forward import WalkForwardValidator
+    from models.walk_forward import generate_purged_walk_forward_splits
 
-    results: Dict[str, Any] = {}
-    label_col = "label_value"
-    if label_col not in label_df.columns:
-        configured_horizon = cfg.get("modeling", {}).get("default_horizon", 7)
-        fallback_col = f"fwd_return_{configured_horizon}d"
-        if fallback_col in label_df.columns:
-            label_col = fallback_col
-        else:
-            fwd_cols = [c for c in label_df.columns if c.startswith("fwd_return")]
-            if not fwd_cols:
-                return {"error": "No label column found"}
-            label_col = fwd_cols[0]
+    model_cfg = cfg.get("modeling", {})
+    target_horizon = int(model_cfg.get("default_horizon", 7))
 
-    # Merge features and labels
-    label_subset_cols = ["symbol", "date_ts", label_col]
-    if label_col == "label_value" and "horizon_days" in label_df.columns:
-        target_horizon = cfg.get("modeling", {}).get("default_horizon", 7)
-        label_df = label_df[label_df["horizon_days"] == target_horizon].copy()
+    # Resolve the label column against the real LabelAgent schema.
+    label_col = next((c for c in _LABEL_COLUMN_CANDIDATES if c in label_df.columns), None)
+    if label_col is None:
+        fwd_cols = [c for c in label_df.columns if "return" in c.lower() and c.startswith("label")]
+        if not fwd_cols:
+            return {"error": "No label column found"}
+        label_col = fwd_cols[0]
+
+    labels = label_df
+    if "horizon_days" in labels.columns:
+        labels = labels[labels["horizon_days"] == target_horizon].copy()
 
     panel = feature_df.merge(
-        label_df[label_subset_cols],
+        labels[["symbol", "date_ts", label_col]],
         on=["symbol", "date_ts"],
         how="inner",
     ).dropna(subset=[label_col])
+    panel = panel.sort_values(["date_ts", "symbol"]).reset_index(drop=True)
 
-    model_cfg = cfg.get("modeling", {})
-    n_splits = model_cfg.get("n_splits", 5)
-    embargo_days = model_cfg.get("embargo_days", 7)
-    test_size = model_cfg.get("test_size_days", 90)
+    market_only, all_features = _classify_features(panel, label_col)
 
+    # Walk-forward parameters (scale-aware; small studies pass smaller windows via cfg).
+    wf = model_cfg.get("walk_forward", {}) if isinstance(model_cfg.get("walk_forward"), dict) else {}
+    split_kwargs = dict(
+        horizon_days=target_horizon,
+        initial_train_days=int(wf.get("initial_train_days", model_cfg.get("initial_train_days", 252))),
+        test_days=int(wf.get("test_days", model_cfg.get("test_size_days", 30))),
+        step_days=int(wf.get("step_days", model_cfg.get("step_days", 30))),
+        embargo_days=int(wf.get("embargo_days", model_cfg.get("embargo_days", target_horizon))),
+        min_train_rows=int(wf.get("min_train_rows", 200)),
+        min_test_rows=int(wf.get("min_test_rows", 20)),
+        min_test_symbols=int(wf.get("min_test_symbols", 3)),
+    )
+    seed = int(cfg.get("project", {}).get("seed", 42))
+
+    results: Dict[str, Any] = {}
     for variant_name, feature_cols in [
-        ("market_only", MARKET_ONLY_FEATURES),
-        ("market_plus_onchain", ALL_FEATURES),
+        ("market_only", market_only),
+        ("market_plus_onchain", all_features),
     ]:
-        # Use only features that actually exist in the panel
         available = [c for c in feature_cols if c in panel.columns]
         if not available:
-            results[variant_name] = {"error": f"No features available: {feature_cols}"}
+            results[variant_name] = {"error": f"No features available for {variant_name}"}
             continue
-
-        X = panel[available].copy()
-        y = panel[label_col].copy()
-
-        # Drop rows where all features are NaN
-        valid_mask = X.notna().any(axis=1) & y.notna()
-        X = X[valid_mask].fillna(0)
-        y = y[valid_mask]
-
-        if len(X) < 100:
-            results[variant_name] = {
-                "error": f"Insufficient data: {len(X)} rows",
-                "n_features": len(available),
-                "features_used": available,
-            }
-            continue
-
-        # Walk-forward CV
-        wfv = WalkForwardValidator(
-            n_splits=n_splits,
-            embargo_days=embargo_days,
-            test_size_days=test_size,
-        )
 
         fold_ics: List[float] = []
         fold_hit_rates: List[float] = []
 
-        for fold_idx, (train_idx, test_idx) in enumerate(wfv.split(X)):
-            X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
-            y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+        for split in generate_purged_walk_forward_splits(panel, **split_kwargs):
+            train = panel.iloc[split.train_idx]
+            test = panel.iloc[split.test_idx]
+            X_train = train[available].replace([np.inf, -np.inf], np.nan)
+            X_test = test[available].replace([np.inf, -np.inf], np.nan)
+            medians = X_train.median(numeric_only=True)
+            X_train = X_train.fillna(medians).fillna(0.0)
+            X_test = X_test.fillna(medians).fillna(0.0)
+            y_train = train[label_col].to_numpy()
+            y_test = test[label_col].to_numpy()
 
-            if len(X_train) < 20 or len(X_test) < 5:
-                continue
-
-            # Use LightGBM if available, else RandomForest
             try:
                 import lightgbm as lgb
                 model = lgb.LGBMRegressor(
@@ -162,29 +151,21 @@ def run_ablation(
                     learning_rate=0.05,
                     max_depth=4,
                     num_leaves=15,
-                    random_state=cfg.get("project", {}).get("seed", 42),
+                    random_state=seed,
                     verbose=-1,
                 )
             except ImportError:
                 from sklearn.ensemble import RandomForestRegressor
-                model = RandomForestRegressor(
-                    n_estimators=100,
-                    max_depth=5,
-                    random_state=cfg.get("project", {}).get("seed", 42),
-                )
+                model = RandomForestRegressor(n_estimators=100, max_depth=5, random_state=seed)
 
             model.fit(X_train, y_train)
-            preds = model.predict(X_test)
+            preds = np.asarray(model.predict(X_test), dtype=float)
 
-            # Rank IC (Spearman correlation)
             from scipy.stats import spearmanr
-            ic, _ = spearmanr(preds, y_test.values)
+            ic, _ = spearmanr(preds, y_test)
             if not np.isnan(ic):
                 fold_ics.append(float(ic))
-
-            # Hit rate
-            hit = float(np.mean(np.sign(preds) == np.sign(y_test.values)))
-            fold_hit_rates.append(hit)
+            fold_hit_rates.append(float(np.mean(np.sign(preds) == np.sign(y_test))))
 
         results[variant_name] = {
             "n_features": len(available),
