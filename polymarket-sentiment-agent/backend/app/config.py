@@ -49,9 +49,10 @@ class Settings(BaseSettings):
     # disabled (503), not open — CORS alone does not stop curl.
     admin_token: str = ""
 
-    # Trading mode
+    # Trading mode. LIVE is an intentional stub (execution._execute_live raises
+    # NotImplementedError); no signer/private-key is wired, so none is configured
+    # here. A future implementer adds the wallet secret alongside that signer.
     trading_mode: Literal["PAPER", "LIVE"] = "PAPER"
-    wallet_private_key: str = ""
     polygon_rpc_url: str = "https://polygon-rpc.com"
 
     # Data
