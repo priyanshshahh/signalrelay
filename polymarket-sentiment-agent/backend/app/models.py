@@ -156,3 +156,59 @@ class LogEvent(Base):
     component = Column(String(32), default="agent")
     message = Column(Text, default="")
     data = Column(Text, default="{}")  # JSON
+
+
+class PredictionRecord(Base):
+    """A single timestamped model probability emitted for one market outcome.
+
+    This is the falsifiable track record: every time the agent forms a
+    probability estimate on a market (whether or not it trades), we append a row
+    here with the model's probability, the market-implied probability at that
+    moment, and full provenance. When the market later resolves (see
+    MarketResolution), the outcome is joined in and the prediction is scored.
+    Nothing here is backfilled from anything other than genuinely stored data.
+    """
+    __tablename__ = "prediction_records"
+
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime, default=_utcnow, index=True)
+
+    condition_id = Column(String(128), index=True, nullable=False)
+    token_id = Column(String(128), default="")
+    outcome = Column(String(64), nullable=False)          # the outcome this prob is for
+    market_question = Column(String(1024), default="")
+
+    model_probability = Column(Float, nullable=False)     # our estimate, 0-1
+    market_probability = Column(Float, nullable=False)     # market-implied at emit time, 0-1
+    edge = Column(Float, default=0.0)                       # model - market
+
+    # Provenance (surfaced in the paid payload; there is no MLflow here — the
+    # "model" is the Bayesian updater over an LLM sentiment label).
+    sentiment = Column(String(16), default="")
+    confidence = Column(Float, default=0.0)
+    llm_provider = Column(String(32), default="heuristic")
+    model_version = Column(String(64), default="")
+    signal_id = Column(Integer, ForeignKey("signals.id"), nullable=True)
+
+    # True for seeded rows reconstructed from historical trades / demo data.
+    backfilled = Column(Boolean, default=False, nullable=False)
+    demo = Column(Boolean, default=False, nullable=False)
+
+    __table_args__ = (
+        Index("ix_prediction_records_condition_created", "condition_id", "created_at"),
+    )
+
+
+class MarketResolution(Base):
+    """Ground-truth resolution for a market, joined onto PredictionRecords.
+
+    Populated by the resolution job, which reads Polymarket's public Gamma API
+    (closed=true markets carry the resolved outcome). One row per condition_id.
+    """
+    __tablename__ = "market_resolutions"
+
+    condition_id = Column(String(128), primary_key=True)
+    resolved_outcome = Column(String(64), nullable=False)  # winning outcome name
+    resolved_at = Column(DateTime, default=_utcnow)
+    source = Column(String(64), default="gamma")           # provenance of the outcome
+    raw = Column(Text, default="{}")                        # JSON of the source fields used

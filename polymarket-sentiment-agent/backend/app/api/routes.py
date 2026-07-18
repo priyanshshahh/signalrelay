@@ -12,8 +12,8 @@ from ..auth import require_admin_token
 from ..config import settings
 from ..database import session_scope
 from ..models import AgentState, LogEvent, MarketSnapshot, NewsItem, Signal, Trade
-from ..modules import ingestion, intelligence, market as oracle, risk
-from ..orchestrator import agent_loop, _run_once
+from ..modules import ingestion, intelligence, market as oracle, risk, track_record
+from ..orchestrator import agent_loop, _run_once, _model_version
 from ..schemas import (
     KillSwitchIn,
     MarketSnapshotOut,
@@ -198,7 +198,12 @@ def portfolio():
 
 @router.get("/trade/{trade_id}/rationale")
 def trade_rationale(trade_id: int):
-    """The 'why we made this trade' view — joins trade -> signal -> news -> snapshot."""
+    """The 'why we made this trade' view — joins trade -> signal -> news -> snapshot.
+
+    This is the x402-paywalled payload. Beyond the raw join it carries
+    per-signal *provenance* (which model/version produced the probability, the
+    Bayesian posterior lineage) and an honest x402 *receipt/trust-model* note.
+    """
     with session_scope() as s:
         t = s.get(Trade, trade_id)
         if not t:
@@ -206,12 +211,41 @@ def trade_rationale(trade_id: int):
         sig = s.get(Signal, t.signal_id) if t.signal_id else None
         news = s.get(NewsItem, sig.news_item_id) if sig else None
         snap = s.get(MarketSnapshot, t.snapshot_id) if t.snapshot_id else None
+
+        provenance = {
+            "model_version": _model_version(sig.llm_provider if sig else None),
+            "llm_provider": sig.llm_provider if sig else None,
+            "estimator": "bayesian_update(market_prior, llm_sentiment, confidence)",
+            "signal_id": t.signal_id,
+            "snapshot_id": t.snapshot_id,
+            "prior": sig.prior if sig else None,
+            "posterior": sig.posterior if sig else None,
+            "likelihood_ratio": sig.likelihood_ratio if sig else None,
+            "model_probability": t.model_probability,
+            "edge": t.edge,
+            "track_record_endpoint": "/api/track-record",
+            "note": "No MLflow here — the estimator is a deterministic Bayesian update over an LLM sentiment label.",
+        }
         return {
             "demo": bool(t.demo),
             "trade": TradeOut.model_validate(t).model_dump(mode="json"),
             "signal": SignalOut.model_validate(sig).model_dump(mode="json") if sig else None,
             "news": NewsItemOut.model_validate(news).model_dump(mode="json") if news else None,
             "snapshot": MarketSnapshotOut.model_validate(snap).model_dump(mode="json") if snap else None,
+            "provenance": provenance,
+            "x402_receipt": {
+                "settlement_tx_hash_header": "X-PAYMENT-RESPONSE",
+                "network": settings.x402_network,
+                "facilitator": settings.x402_facilitator_url,
+                "trust_model": (
+                    "Payment is verified and settled by the remote facilitator above; "
+                    "this server performs NO local cryptographic verification. On success "
+                    "the facilitator's settlement result (including the on-chain tx hash) is "
+                    "returned in the X-PAYMENT-RESPONSE response header — decode it and verify "
+                    "the transfer on the Base explorer. If the facilitator is compromised or "
+                    "misconfigured, the paywall provides no independent guarantee."
+                ),
+            },
         }
 
 
@@ -252,6 +286,30 @@ def demo_rationale(trade_id: int):
                 "rationale_preview": teaser,
             },
         }
+
+
+@router.get("/track-record")
+def get_track_record(include_demo: bool = Query(False), limit: int = Query(200, le=1000)):
+    """Public, falsifiable track record: every emitted prediction scored against
+    real Polymarket resolutions (Brier / log-loss / calibration).
+
+    Returns status="insufficient_data" (with the raw log, no metrics) until
+    enough markets have resolved. Numbers are real or explicitly absent.
+    """
+    result = track_record.compute_track_record(include_demo=include_demo)
+    if isinstance(result.get("log"), list) and len(result["log"]) > limit:
+        result["log"] = result["log"][-limit:]
+    return result
+
+
+@router.post("/track-record/resolve", dependencies=[Depends(require_admin_token)])
+async def resolve_track_record(backfill: bool = Query(False)):
+    """Admin: pull fresh Polymarket resolutions (and optionally backfill the
+    prediction log from historical trades). Gated by ADMIN_TOKEN like the other
+    control-plane routes."""
+    seeded = track_record.backfill_from_trades() if backfill else 0
+    newly_resolved = await track_record.resolve_open_predictions()
+    return {"backfilled_from_trades": seeded, "newly_resolved": newly_resolved}
 
 
 @router.get("/logs")

@@ -16,10 +16,46 @@ from typing import Dict, List, Optional, Tuple
 
 from .config import settings
 from .database import session_scope
-from .models import AgentState, MarketSnapshot, NewsItem, Signal
+from .models import AgentState, MarketSnapshot, NewsItem, PredictionRecord, Signal
 from .modules import execution, ingestion, intelligence, market, risk
 
 log = logging.getLogger("orchestrator")
+
+
+def _model_version(provider: str) -> str:
+    """A stable provenance string for the 'model' that produced a probability.
+
+    There is no MLflow here: the estimator is the deterministic Bayesian update
+    over an LLM sentiment label, so the version is (provider:model)."""
+    model = {
+        "groq": settings.groq_model,
+        "openai": settings.openai_model,
+        "anthropic": settings.anthropic_model,
+    }.get((provider or "").lower(), "")
+    return f"{provider}:{model}" if model else (provider or "heuristic")
+
+
+def _log_prediction(sig: Signal, snap: MarketSnapshot, target: float, edge: float) -> None:
+    """Append one falsifiable prediction to the track-record log."""
+    try:
+        with session_scope() as s:
+            s.add(PredictionRecord(
+                condition_id=snap.condition_id,
+                token_id=snap.token_id,
+                outcome=snap.outcome,
+                market_question=snap.question,
+                model_probability=float(target),
+                market_probability=float(snap.price),
+                edge=float(edge),
+                sentiment=sig.sentiment or "",
+                confidence=float(sig.confidence or 0.0),
+                llm_provider=sig.llm_provider or "heuristic",
+                model_version=_model_version(sig.llm_provider or "heuristic"),
+                signal_id=sig.id,
+                demo=bool(getattr(sig, "demo", False)),
+            ))
+    except Exception:
+        log.exception("Failed to log prediction for signal %s", getattr(sig, "id", "?"))
 
 
 def _set_state(key: str, value: str) -> None:
@@ -133,6 +169,10 @@ async def _run_once() -> None:
 
         side, target = _decide_side_and_target_prob(sig, snap.price)
         edge = target - snap.price
+
+        # Log every emitted probability estimate to the track record, whether or
+        # not it clears the edge threshold and trades below.
+        _log_prediction(sig, snap, target, edge)
 
         plan = risk.TradePlan(
             condition_id=snap.condition_id,
