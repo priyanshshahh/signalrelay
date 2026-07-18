@@ -855,11 +855,3 @@ class FeatureAgent(AgentBase):
         if fatal_errors:
             lines.extend(["", "## Failures"] + [f"- {err}" for err in fatal_errors])
         path.write_text("\n".join(lines))
-
-
-class FeatureAgentV1(FeatureAgent):
-    """Backward-compatible wrapper around canonical FeatureAgent."""
-
-
-class FeatureAgentV2(FeatureAgent):
-    """Backward-compatible wrapper around canonical FeatureAgent."""

@@ -32,3 +32,6 @@ repo_status_after_phase6.txt
 # MLflow tracking runs — local artifacts, leak absolute local paths in
 # meta.yaml/tags if committed. Untracked going forward (see prod-hardening).
 mlruns/
+
+# Model/feature-importance artifacts — rebuildable pipeline outputs, not source.
+artifacts/
