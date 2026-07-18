@@ -500,7 +500,7 @@ signer on a public repo is a footgun. To enable:
    client = ClobClient(
        host="https://clob.polymarket.com",
        chain_id=137,
-       key=settings.wallet_private_key,
+       key=os.environ["WALLET_PRIVATE_KEY"],  # not a config field today; add it when going live
    )
    # build a market order, sign with EIP-712, submit
    ```

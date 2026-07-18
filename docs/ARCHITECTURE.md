@@ -252,7 +252,7 @@ No endpoint exposes secrets. All other routes (`/api/news`, `/api/signals`, `/ap
 | Category | Vars |
 |---|---|
 | Runtime | `LOG_LEVEL`, `DATABASE_URL` (default `sqlite:///./data/doa.db` — README states a stale `sqlite:///./doa.db`), `HOST`, `PORT`, `CORS_ORIGINS`, `LOOP_INTERVAL_SECONDS` |
-| Risk/trading | `EDGE_THRESHOLD`, `MIN_SIGNAL_CONFIDENCE`, `MAX_USDC_PER_TRADE`, `MAX_OPEN_POSITIONS`, `DAILY_DRAWDOWN_USDC`, `KILL_SWITCH`, `TRADING_MODE` (paper/live; live path raises `NotImplementedError` unconditionally — a deliberate safety stub), `WALLET_PRIVATE_KEY` (loaded but never used — inert), `POLYGON_RPC_URL` |
+| Risk/trading | `EDGE_THRESHOLD`, `MIN_SIGNAL_CONFIDENCE`, `MAX_USDC_PER_TRADE`, `MAX_OPEN_POSITIONS`, `DAILY_DRAWDOWN_USDC`, `KILL_SWITCH`, `TRADING_MODE` (paper/live; live path raises `NotImplementedError` unconditionally — a deliberate safety stub), `POLYGON_RPC_URL` |
 | Control plane | `ADMIN_TOKEN` (empty by default → admin routes 503) |
 | Sentiment sources | `RSS_FEEDS`, `CRYPTOPANIC_API_KEY` |
 | LLM providers | `GROQ_API_KEY`, `GROQ_MODEL` (default `llama-3.1-8b-instant`), `OPENAI_API_KEY`, `OPENAI_MODEL`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` — first configured key wins, falls through to a heuristic keyword scorer if all fail/unset |
