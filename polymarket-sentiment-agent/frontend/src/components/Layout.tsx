@@ -2,6 +2,7 @@ import { NavLink, Outlet } from "react-router-dom";
 
 const nav = [
   { to: "/", label: "Command Center", end: true },
+  { to: "/track-record", label: "Track Record" },
   { to: "/x402-lab", label: "x402 Lab" },
   { to: "/pitch", label: "Pitch Deck" },
 ];

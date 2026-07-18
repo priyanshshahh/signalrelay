@@ -122,6 +122,48 @@ export type DemoTeaser = {
   };
 };
 
+export type TrackRecordRow = {
+  id: number;
+  created_at: string | null;
+  condition_id: string;
+  market_question: string;
+  outcome: string;
+  model_probability: number;
+  market_probability: number;
+  resolved_outcome: string;
+  actual: 0 | 1;
+  backfilled: boolean;
+  model_version: string;
+  llm_provider: string;
+};
+
+export type CalibrationBin = {
+  bin_lower: number;
+  bin_upper: number;
+  count: number;
+  mean_predicted: number | null;
+  observed_frequency: number | null;
+};
+
+export type TrackRecord = {
+  status: "ok" | "insufficient_data";
+  start_date: string | null;
+  total_predictions: number;
+  resolved_predictions: number;
+  pending_predictions: number;
+  min_resolved_for_metrics: number;
+  methodology: string;
+  metrics?: {
+    accuracy: number;
+    brier_score: number;
+    log_loss: number;
+    market_baseline_brier: number;
+    base_rate: number;
+  };
+  calibration?: CalibrationBin[];
+  log: TrackRecordRow[];
+};
+
 export type LogEvent = {
   id: number;
   created_at: string;
@@ -146,6 +188,7 @@ export const api = {
   portfolio: () => j<Portfolio>("/api/portfolio"),
   equityCurve: () => j<EquityPoint[]>("/api/equity-curve"),
   logs: () => j<LogEvent[]>("/api/logs?limit=100"),
+  trackRecord: () => j<TrackRecord>("/api/track-record"),
   rationale: (id: number) => j<Rationale>(`/api/trade/${id}/rationale`),
   setKill: (enabled: boolean) =>
     j<{ kill_switch: boolean }>("/api/kill-switch", {
