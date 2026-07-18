@@ -2,8 +2,19 @@
 @tailwind components;
 @tailwind utilities;
 
+html {
+  /* App is dark-only: tells the UA to render form controls, scrollbars, and
+     spinners in their dark variants (Web Interface Guidelines: dark mode). */
+  color-scheme: dark;
+}
+
 html, body, #root {
   height: 100%;
+}
+
+/* Touch: drop the 300ms tap delay on interactive surfaces. */
+a, button, [role="button"] {
+  touch-action: manipulation;
 }
 
 ::-webkit-scrollbar {

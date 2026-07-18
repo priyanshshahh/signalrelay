@@ -112,7 +112,9 @@ export default function TrackRecord() {
 
       {err && (
         <Panel>
-          <div className="text-danger text-sm">Failed to load track record: {err}</div>
+          <div className="text-danger text-sm" role="alert">
+            Failed to load track record: {err}
+          </div>
         </Panel>
       )}
 
@@ -253,7 +255,11 @@ export default function TrackRecord() {
         </>
       )}
 
-      {!tr && !err && <div className="text-muted text-sm">Loading…</div>}
+      {!tr && !err && (
+        <div className="text-muted text-sm" role="status" aria-live="polite">
+          Loading…
+        </div>
+      )}
     </main>
   );
 }
