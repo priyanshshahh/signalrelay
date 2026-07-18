@@ -201,25 +201,3 @@ def summarize_predictions(predictions: pd.DataFrame, *, n_features: int) -> Dict
         **topk,
         **errors,
     }
-
-
-# Backward-compatible names for older imports.
-walk_forward_splits = generate_purged_walk_forward_splits
-rank_ic = rank_ic_by_date
-
-
-def compute_fold_metrics(*args, **kwargs):
-    raise NotImplementedError("Use rank_ic_by_date / summarize_predictions in the rebuilt research pipeline.")
-
-
-def aggregate_fold_metrics(*args, **kwargs):
-    raise NotImplementedError("Use summarize_predictions in the rebuilt research pipeline.")
-
-
-class WalkForwardValidator:
-    def __init__(self, **kwargs):
-        self.kwargs = kwargs
-
-    def split(self, X: pd.DataFrame) -> Generator[tuple[np.ndarray, np.ndarray], None, None]:
-        for split in generate_purged_walk_forward_splits(X, **self.kwargs):
-            yield split.train_idx, split.test_idx
